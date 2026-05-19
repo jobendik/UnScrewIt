@@ -87,3 +87,60 @@ export function restore(bucket: BucketState, snap: BucketSlot[]): void {
     }
   }
 }
+
+/**
+ * Color-sort booster: compact same-colour slots into the fewest possible
+ * positions. Returns true if anything changed.
+ *
+ * Algorithm: sum total count per colour, then refill slots in colour order
+ * with up to `SLOT_CAPACITY` each. Any slot that becomes fully-filled is
+ * cleared immediately (matches normal pop logic).
+ */
+export interface SortOutcome {
+  changed: boolean;
+  /** Slot indices that ended up cleared as a side-effect. */
+  clearedSlots: number[];
+  /** Colours cleared (parallel to clearedSlots). */
+  clearedColors: string[];
+}
+
+export function colorSort(bucket: BucketState): SortOutcome {
+  const totals = new Map<string, number>();
+  for (const s of bucket.slots) {
+    if (s.color !== null && s.count > 0) {
+      totals.set(s.color, (totals.get(s.color) ?? 0) + s.count);
+    }
+  }
+  const before = bucket.slots.map((s) => ({ color: s.color, count: s.count }));
+  // Reset slots
+  for (const s of bucket.slots) { s.color = null; s.count = 0; }
+  // Re-fill in colour order (stable for determinism)
+  const colors = Array.from(totals.keys()).sort();
+  let slotIdx = 0;
+  const clearedSlots: number[] = [];
+  const clearedColors: string[] = [];
+  for (const color of colors) {
+    let remaining = totals.get(color) ?? 0;
+    while (remaining > 0 && slotIdx < bucket.slots.length) {
+      const cap = Math.min(SLOT_CAPACITY, remaining);
+      const slot = bucket.slots[slotIdx];
+      if (!slot) break;
+      slot.color = color as BucketSlot['color'];
+      slot.count = cap;
+      remaining -= cap;
+      if (cap === SLOT_CAPACITY) {
+        clearedSlots.push(slotIdx);
+        clearedColors.push(color);
+        slot.color = null;
+        slot.count = 0;
+      }
+      slotIdx += 1;
+    }
+  }
+  const after = bucket.slots.map((s) => ({ color: s.color, count: s.count }));
+  const changed = before.some((b, i) => {
+    const a = after[i];
+    return !a || b.color !== a.color || b.count !== a.count;
+  });
+  return { changed, clearedSlots, clearedColors };
+}

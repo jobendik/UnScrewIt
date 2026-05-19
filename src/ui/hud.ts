@@ -10,6 +10,10 @@
 import { fmtTime, requireEl } from '@/core/utils';
 import { loadSave } from '@/core/save';
 import { xpProgress } from '@/economy/currency';
+import { countOf } from '@/economy/boosters';
+import type { BoosterId } from '@/economy/boosters';
+import { readyToClaimCount } from '@/retention/dailyQuests';
+import { dailyStatus } from '@/retention/dailyLogin';
 import type { GameState } from '@/game/state';
 
 interface HudRefs {
@@ -20,6 +24,10 @@ interface HudRefs {
   xpBar: HTMLElement;
   streakBadge: HTMLElement;
   progress: HTMLElement;
+  boosterCounts: Record<BoosterId, HTMLElement>;
+  boosterButtons: Record<BoosterId, HTMLButtonElement>;
+  questDot: HTMLElement;
+  dailyDot: HTMLElement;
 }
 
 let cached: HudRefs | null = null;
@@ -36,6 +44,20 @@ function refs(): HudRefs {
     xpBar:       requireEl('xpBarFill'),
     streakBadge: requireEl('streakBadge'),
     progress:    requireEl('progressText'),
+    boosterCounts: {
+      extraTime:  requireEl('boosterExtraTimeCount'),
+      colorSort:  requireEl('boosterColorSortCount'),
+      revealHint: requireEl('boosterRevealHintCount'),
+      undo:       requireEl('boosterUndoCount'),
+    },
+    boosterButtons: {
+      extraTime:  requireEl<HTMLButtonElement>('boosterExtraTimeBtn'),
+      colorSort:  requireEl<HTMLButtonElement>('boosterColorSortBtn'),
+      revealHint: requireEl<HTMLButtonElement>('boosterRevealHintBtn'),
+      undo:       requireEl<HTMLButtonElement>('boosterUndoBtn'),
+    },
+    questDot:    requireEl('questDot'),
+    dailyDot:    requireEl('dailyIndicator'),
   };
   return cached;
 }
@@ -50,6 +72,25 @@ export function updateHud(state: GameState): void {
   r.rank.textContent = `R${xp.rank}`;
   r.xpBar.style.width = `${Math.round(xp.fraction * 100)}%`;
   r.streakBadge.textContent = save.daily.streakDay > 0 ? `🔥 ${save.daily.streakDay}` : '🔥 0';
+
+  // Booster counts.
+  const ids: BoosterId[] = ['extraTime', 'colorSort', 'revealHint', 'undo'];
+  for (const id of ids) {
+    const count = countOf(id);
+    const countEl = r.boosterCounts[id];
+    const btn = r.boosterButtons[id];
+    if (countEl) countEl.textContent = String(count);
+    if (btn) {
+      btn.disabled = count <= 0 || state.animating || state.completed || state.lost;
+      btn.classList.toggle('booster-btn--ready', count > 0);
+    }
+  }
+
+  // Daily / quest indicators.
+  const questsReady = readyToClaimCount();
+  r.questDot.style.display = questsReady > 0 ? 'block' : 'none';
+  const dailyClaimable = dailyStatus().claimable;
+  r.dailyDot.style.display = dailyClaimable ? 'block' : 'none';
 
   // Animated coin tick.
   const target = save.player.coins;
@@ -78,7 +119,6 @@ export function updateHud(state: GameState): void {
   coinTickRaf = requestAnimationFrame(step);
 }
 
-/** Force the coin counter to reflect the current save without animation. */
 export function resyncCoins(): void {
   const r = refs();
   const save = loadSave();
