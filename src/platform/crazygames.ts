@@ -57,25 +57,34 @@ let initialised: Promise<void> | null = null;
 export function init(): Promise<void> {
   if (initialised) return initialised;
   initialised = new Promise<void>((resolve) => {
+    let settled = false;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      ready = true;
+      resolve();
+    };
+
     const script = document.createElement('script');
     script.src = SDK_URL;
     script.async = true;
-    const fail = (): void => {
-      ready = true;
-      resolve();
+
+    // Safety net: don't block boot if the CDN hangs.
+    const failTimer = window.setTimeout(settle, 3000);
+
+    script.onerror = (): void => {
+      window.clearTimeout(failTimer);
+      settle();
     };
-    script.onerror = fail;
-    script.onload = async () => {
+    script.onload = async (): Promise<void> => {
+      window.clearTimeout(failTimer);
       sdk = window.CrazyGames?.SDK ?? null;
       if (sdk?.init) {
-        try { await sdk.init(); } catch { /* swallow */ }
+        try { await sdk.init(); } catch { /* swallow — SDK throws [object Object] outside CrazyGames */ }
       }
-      ready = true;
-      resolve();
+      settle();
     };
     document.head.appendChild(script);
-    // Safety net: don't block boot if the CDN hangs.
-    window.setTimeout(fail, 3000);
   });
   return initialised;
 }
@@ -104,7 +113,7 @@ export function requestRewardedAd(): Promise<{ ok: true } | { ok: false; reason:
       try {
         sdk.ad.requestAd('rewarded', {
           adFinished: () => settle({ ok: true }),
-          adError: (e) => settle({ ok: false, reason: String(e) }),
+          adError: (e) => settle({ ok: false, reason: e instanceof Error ? e.message : JSON.stringify(e) }),
         });
       } catch (e) {
         settle({ ok: false, reason: String(e) });

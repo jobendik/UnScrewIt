@@ -146,7 +146,10 @@ function buildScaffold(rng: Rng, profile: DifficultyProfile): BuildResult | null
 
   const screwHoleIds = Array.from(screwSpots);
   if (screwHoleIds.length > totalScrews) {
-    rng.shuffle(screwHoleIds).length = totalScrews;
+    // Shuffle, then truncate the original array in-place so the later length
+    // check (screwHoleIds.length !== totalScrews) does not discard the scaffold.
+    const shuffled = rng.shuffle(screwHoleIds).slice(0, totalScrews);
+    screwHoleIds.splice(0, screwHoleIds.length, ...shuffled);
   }
   while (screwHoleIds.length < totalScrews) {
     const free = holeIds.find((id) => !screwHoleIds.includes(id));
