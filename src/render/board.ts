@@ -1,10 +1,10 @@
 /**
- * Board renderer — rebuilds the SVG board scene on demand.
+ * Board renderer for the bucket-color mechanic.
  *
- * Performance note: the prototype rebuilds the entire SVG on every render.
- * That's adequate while levels stay small (≤ ~24 nodes). When the game
- * grows past a few dozen interactive nodes we'll switch to in-place
- * mutation of plate/screw transforms. For now we prefer the simpler model.
+ * Differences from the old sliding-screws renderer:
+ * - Screws are tinted by their colour (not all gray).
+ * - The bucket bar lives at the bottom of the SVG, inside the same viewBox.
+ * - Taps go straight to `onScrewTap` — there's no selection / target step.
  */
 
 import {
@@ -14,61 +14,40 @@ import {
   HOLE_RADIUS,
   SCREW_RADIUS,
 } from '@/core/config';
+import { colorDef } from '@/game/colors';
 import { radToDeg } from '@/core/utils';
 import type { GameState } from '@/game/state';
-import type { Hole, Plate } from '@/game/types';
+import type { Plate, Screw } from '@/game/types';
 import { buildDefs } from './defs';
+import { drawBucket } from './bucket';
 import { svg, setChildren } from './svg';
 
 const W = BOARD_VIEWBOX.w;
 
 export interface RenderCallbacks {
-  onHoleTap: (holeId: string) => void;
   onScrewTap: (screwId: string) => void;
-  onBoardTap: () => void;
-}
-
-interface RenderContext {
-  root: SVGSVGElement;
-  state: GameState;
-  callbacks: RenderCallbacks;
 }
 
 let attachedRoot: SVGSVGElement | null = null;
 
-/**
- * Wire one-time DOM listeners on the root SVG element. Idempotent.
- */
-export function bindBoard(root: SVGSVGElement, callbacks: RenderCallbacks): void {
+export function bindBoard(root: SVGSVGElement): void {
   if (attachedRoot === root) return;
   attachedRoot = root;
-  root.addEventListener('pointerdown', (e) => {
-    // Only fire when the user taps the background, not a hole or screw.
-    if (e.target === root) callbacks.onBoardTap();
-  });
+  // Background taps are no-ops in bucket mechanic — leaving the listener
+  // unwired prevents accidental side-effects.
 }
 
-/**
- * Render (or re-render) the board for the supplied state. Removes all existing
- * children and rebuilds.
- */
-export function renderBoard(
-  root: SVGSVGElement,
-  state: GameState,
-  callbacks: RenderCallbacks,
-): void {
-  const ctx: RenderContext = { root, state, callbacks };
+export function renderBoard(root: SVGSVGElement, state: GameState, callbacks: RenderCallbacks): void {
   setChildren(root, [
     buildDefs(),
     backgroundLayer(state),
-    holesLayer(ctx),
     platesLayer(state),
-    screwsLayer(ctx),
+    screwsLayer(state, callbacks),
+    drawBucket(state.bucketSlots),
     effectsLayer(),
   ]);
 }
 
-/** Convenience accessor for the effects sub-layer (created lazily). */
 export function ensureEffectsLayer(root: SVGSVGElement): SVGGElement {
   const existing = root.querySelector<SVGGElement>('#effects');
   if (existing) return existing;
@@ -121,70 +100,46 @@ function backgroundLayer(state: GameState): SVGGElement {
 
   const title = svg('text', {
     x: W / 2,
-    y: BOARD_RECT.y + 40,
+    y: BOARD_RECT.y + 36,
     'text-anchor': 'middle',
     fill: '#80410e',
     'font-size': 20,
-    'font-weight': 1000,
-    opacity: '.48',
+    'font-weight': 800,
+    opacity: '.5',
   });
-  title.textContent = state.level.name;
+  title.textContent = `${state.chapter}-${state.levelIdx} · ${state.level.name}`;
   g.appendChild(title);
-  return g;
-}
 
-function holesLayer(ctx: RenderContext): SVGGElement {
-  const g = svg('g', { id: 'holes' });
-  const { state } = ctx;
-  const occupied = state.occupiedHoleIds();
-
-  for (const h of state.level.holes) {
-    const blocked = state.isHoleBlocked(h);
-    const selected = state.selected;
-    const valid = selected && state.validTargets.has(h.id);
-    const invalid = selected && state.invalidTargets.has(h.id) && !occupied.has(h.id);
-    const hint = state.hint?.targetId === h.id;
-
-    const cls = [
-      'svg-button',
-      valid ? 'valid-target' : '',
-      invalid ? 'invalid-target' : '',
-      hint ? 'hint-pulse' : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
-
-    const group = svg('g', {
-      className: cls,
-      transform: `translate(${h.x},${h.y})`,
-      dataset: { hole: h.id },
+  // Combo callout (top-right of board)
+  if (state.combo >= 2) {
+    const cg = svg('g', {
+      transform: `translate(${BOARD_RECT.x + BOARD_RECT.w - 70},${BOARD_RECT.y + 36})`,
     });
-    group.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      ctx.callbacks.onHoleTap(h.id);
-    });
-
-    group.appendChild(
-      svg('circle', {
-        r: HOLE_RADIUS + 6,
-        fill: valid ? '#67ec75' : invalid ? '#f25b48' : '#6e3919',
-        opacity: valid ? '.55' : invalid ? '.24' : '.24',
-      }),
-    );
-    group.appendChild(
-      svg('circle', {
-        r: HOLE_RADIUS,
-        fill: 'url(#holeGrad)',
-        stroke: '#fff0b2',
+    cg.appendChild(
+      svg('rect', {
+        x: -52,
+        y: -22,
+        width: 104,
+        height: 38,
+        rx: 18,
+        fill: '#fff5b0',
+        stroke: '#a45c11',
         'stroke-width': 3,
-        opacity: blocked && !valid ? '.28' : '1',
       }),
     );
-    group.appendChild(svg('circle', { r: HOLE_RADIUS - 5, fill: '#000', opacity: '.42' }));
-    group.appendChild(svg('circle', { r: HOLE_RADIUS + 14, fill: 'transparent', className: 'screw-hit' }));
-
-    g.appendChild(group);
+    const ct = svg('text', {
+      x: 0,
+      y: 6,
+      'text-anchor': 'middle',
+      fill: '#7a3b08',
+      'font-size': 18,
+      'font-weight': 800,
+    });
+    ct.textContent = `Combo ×${state.combo}`;
+    cg.appendChild(ct);
+    g.appendChild(cg);
   }
+
   return g;
 }
 
@@ -202,7 +157,6 @@ function drawPlate(p: Plate): SVGGElement {
   const group = svg('g', {
     className: `plate ${falling ? 'falling-plate' : ''}`,
     transform,
-    opacity: '1',
   });
 
   if (falling) {
@@ -233,16 +187,11 @@ function drawPlate(p: Plate): SVGGElement {
       }),
     );
     group.appendChild(
-      svg('animate', {
-        attributeName: 'opacity',
-        from: '1',
-        to: '.15',
-        dur: `${FALL_MS}ms`,
-        fill: 'freeze',
-      }),
+      svg('animate', { attributeName: 'opacity', from: '1', to: '.15', dur: `${FALL_MS}ms`, fill: 'freeze' }),
     );
   }
 
+  // Plate body
   group.appendChild(
     svg('rect', {
       x: -p.w / 2,
@@ -283,9 +232,7 @@ function drawPlate(p: Plate): SVGGElement {
   );
 
   for (const h of p.holes) {
-    group.appendChild(
-      svg('circle', { cx: h.x, cy: h.y, r: HOLE_RADIUS + 5, fill: '#6f3014', opacity: '.55' }),
-    );
+    group.appendChild(svg('circle', { cx: h.x, cy: h.y, r: HOLE_RADIUS + 5, fill: '#6f3014', opacity: '.55' }));
     group.appendChild(
       svg('circle', {
         cx: h.x,
@@ -302,66 +249,52 @@ function drawPlate(p: Plate): SVGGElement {
   return group;
 }
 
-function screwsLayer(ctx: RenderContext): SVGGElement {
+function screwsLayer(state: GameState, callbacks: RenderCallbacks): SVGGElement {
   const g = svg('g', { id: 'screws' });
-  const { state } = ctx;
   for (const s of state.level.screws) {
-    const h = state.holeById(s.holeId) as Hole | undefined;
+    const h = state.holeById(s.holeId);
     if (!h) continue;
-    const isSelected = state.selected === s.id;
-    const hint = state.hint?.screwId === s.id;
-    const group = drawScrew(s.id, h.x, h.y, { selected: isSelected, hint });
+    const blocker = state.removeBlocker(s);
+    const group = drawScrew(s, h.x, h.y, { available: blocker === null });
     group.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
-      ctx.callbacks.onScrewTap(s.id);
+      callbacks.onScrewTap(s.id);
     });
     g.appendChild(group);
   }
   return g;
 }
 
-interface ScrewFlags {
-  selected?: boolean;
-  hint?: boolean;
+interface ScrewVisualFlags {
+  available?: boolean;
 }
 
-/** Render a single screw graphic. Exported for use by the move animation. */
-export function drawScrew(id: string, x: number, y: number, flags: ScrewFlags = {}): SVGGElement {
+export function drawScrew(screw: Screw, x: number, y: number, flags: ScrewVisualFlags = {}): SVGGElement {
+  const c = colorDef(screw.color);
   const group = svg('g', {
     transform: `translate(${x},${y})`,
-    className: `svg-button screw-visible ${flags.hint ? 'hint-pulse' : ''}`,
-    dataset: { screw: id },
+    className: `svg-button screw-visible ${flags.available ? 'screw-tappable' : 'screw-dim'}`,
+    dataset: { screw: screw.id, color: screw.color },
   });
-  if (flags.selected) {
-    group.appendChild(
-      svg('circle', { r: SCREW_RADIUS + 16, fill: '#fff36c', opacity: '.55', filter: 'url(#glow)' }),
-    );
-    group.appendChild(
-      svg('circle', { r: SCREW_RADIUS + 8, fill: 'none', stroke: '#fff', 'stroke-width': 4, opacity: '.85' }),
-    );
-  }
-  group.appendChild(svg('circle', { r: SCREW_RADIUS + 3, fill: '#6d6d6d' }));
-  group.appendChild(svg('circle', { r: SCREW_RADIUS, fill: 'url(#screwGrad)', stroke: '#47515b', 'stroke-width': 2 }));
-  group.appendChild(
-    svg('circle', { r: SCREW_RADIUS - 5, fill: 'none', stroke: '#f8fbff', 'stroke-width': 2, opacity: '.42' }),
-  );
+  // Rim
+  group.appendChild(svg('circle', { r: SCREW_RADIUS + 3, fill: c.rim }));
+  // Body
+  group.appendChild(svg('circle', { r: SCREW_RADIUS, fill: c.fill, stroke: c.rim, 'stroke-width': 1.5 }));
+  // Highlight ring
+  group.appendChild(svg('circle', { r: SCREW_RADIUS - 5, fill: 'none', stroke: c.shine, 'stroke-width': 2, opacity: '.65' }));
+  // Cross slot
   group.appendChild(
     svg('path', {
       d: `M${-SCREW_RADIUS + 7} 0 H${SCREW_RADIUS - 7} M0 ${-SCREW_RADIUS + 7} V${SCREW_RADIUS - 7}`,
-      stroke: '#414b55',
-      'stroke-width': 5,
+      stroke: c.rim,
+      'stroke-width': 4.5,
       'stroke-linecap': 'round',
+      opacity: '.85',
     }),
   );
-  group.appendChild(
-    svg('path', {
-      d: `M${-SCREW_RADIUS + 8} -1 H${SCREW_RADIUS - 8} M1 ${-SCREW_RADIUS + 8} V${SCREW_RADIUS - 8}`,
-      stroke: '#ffffff',
-      'stroke-width': 1.6,
-      'stroke-linecap': 'round',
-      opacity: '.52',
-    }),
-  );
+  // Specular dot
+  group.appendChild(svg('circle', { cx: -5, cy: -5, r: 4, fill: '#fff', opacity: '.55' }));
+  // Hit target
   group.appendChild(svg('circle', { r: SCREW_RADIUS + 18, fill: 'transparent', className: 'screw-hit' }));
   return group;
 }
