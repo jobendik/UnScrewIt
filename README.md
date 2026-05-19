@@ -2,22 +2,24 @@
 
 Retention-focused HTML5 puzzle game for the CrazyGames platform. Mobile-portrait first, desktop secondary. Built with vanilla TypeScript + Vite — no game frameworks.
 
+**Genre**: bucket-color screw puzzle (tap a screw → it flies into a matching colour bucket; clear all plates to win). Same core loop family as Wood Nuts & Bolts.
+
 ## Tech stack
 
 - **Vite 5** — build tool, dev server
 - **TypeScript 5** — strict mode, no `any`
 - **Vanilla DOM + SVG** — no UI framework, no game engine
-- **WebAudio** — procedural SFX, no audio assets
+- **WebAudio** — procedural SFX + a small ambient pad; no audio assets
 
 No runtime dependencies. Everything ships as part of the bundle.
 
 ## Quick start
 
 ```bash
-npm install      # one-time
-npm run dev      # http://localhost:5173
+npm install
+npm run dev      # http://localhost:5173/unscrewit/
 npm run build    # production build to dist/
-npm run preview  # serve the production build locally
+npm run preview
 npm run typecheck
 ```
 
@@ -26,48 +28,85 @@ npm run typecheck
 ```
 .
 ├── .github/workflows/    CI / GitHub Pages deploy
-├── public/               Static assets copied verbatim (favicon, manifest)
+├── public/               Static assets copied verbatim
 ├── src/
-│   ├── main.ts           Entry point — bootstraps the game
-│   ├── styles/           CSS (theme custom properties, scenes, HUD)
-│   ├── core/             Foundational systems
+│   ├── main.ts           Entry — wires everything together
+│   ├── styles/           CSS (theme custom properties)
+│   ├── core/             Foundational, framework-free
 │   │   ├── config.ts       Constants, tunables, board dimensions
-│   │   ├── utils.ts        Math helpers, dom helpers, formatters
-│   │   ├── storage.ts      localStorage save/load with schema migration
-│   │   └── audio.ts        WebAudio kit (SFX + procedural music)
-│   ├── game/             Domain logic, no DOM
-│   │   ├── types.ts        Shared type definitions
-│   │   ├── grid.ts         Hole grid system (A1..E7)
-│   │   ├── plates.ts       Plate factory + geometry helpers
-│   │   ├── levels.ts       Level catalog (templates for the procedural generator)
-│   │   └── state.ts        Game state machine + reducers
-│   ├── render/           SVG board rendering
-│   │   ├── svg.ts          SVG element helpers
-│   │   ├── defs.ts         SVG defs (gradients, filters, patterns)
-│   │   ├── board.ts        Board / plate / screw / hole rendering
-│   │   └── animations.ts   Tween + particle helpers
+│   │   ├── utils.ts        Math / DOM helpers, formatters
+│   │   ├── storage.ts      localStorage shim with private-browsing fallback
+│   │   ├── save.ts         Versioned save schema + debounced writes
+│   │   ├── audio.ts        WebAudio kit (procedural SFX + ambient pad)
+│   │   ├── haptics.ts      navigator.vibrate wrapper
+│   │   └── rng.ts          Seeded Mulberry32 RNG
+│   ├── game/             Pure domain logic, no DOM
+│   │   ├── types.ts        Shared types
+│   │   ├── colors.ts       Screw / bucket colour palette
+│   │   ├── grid.ts         A1..E7 hole grid
+│   │   ├── plates.ts       Plate factories + geometry helpers
+│   │   ├── bucket.ts       Bucket slot operations
+│   │   ├── levels.ts       Procedural campaign (10 chapters × 20 levels)
+│   │   ├── generator.ts    Procedural level generator
+│   │   ├── solver.ts       Forward solver for solvability verification
+│   │   └── state.ts        Bucket-color game state machine
+│   ├── economy/          Currency + XP + future shop
+│   │   └── currency.ts
+│   ├── retention/        Daily-login, future quests
+│   │   └── dailyLogin.ts
+│   ├── platform/         CrazyGames SDK + cadence rules
+│   │   ├── crazygames.ts   SDK adapter with standalone shim
+│   │   └── ads.ts          When to ask for an interstitial
+│   ├── render/           SVG board renderer
+│   │   ├── svg.ts          SVG helpers
+│   │   ├── defs.ts         Gradients / filters / patterns
+│   │   ├── board.ts        Board + plate + screw rendering
+│   │   ├── bucket.ts       Bucket bar geometry + render
+│   │   ├── animations.ts   Screw-to-bucket arc, confetti, slot flash
+│   │   └── particles.ts    Sparks, dust, floating text
 │   └── ui/               DOM-driven UI surfaces
-│       ├── hud.ts          Top + bottom HUD
-│       ├── overlay.ts      Modal overlays (win, lose, levels)
-│       └── toast.ts        Transient toast messages
-├── index.html            Vite HTML entry
-├── vite.config.ts        Vite config (base path for GH Pages)
-├── tsconfig.json         TypeScript config (strict)
+│       ├── hud.ts          Top HUD + animated coin tick
+│       ├── overlay.ts      Modal overlays (win/lose/daily/settings/chapters)
+│       └── toast.ts        Transient messages
+├── index.html
+├── vite.config.ts
+├── tsconfig.json
 └── package.json
 ```
 
-The original single-file prototype is preserved at `UnscrewIt_Polished.html` for reference.
+`UnscrewIt_Polished.html` (the original prototype) is kept verbatim as a reference.
 
 ## Where to add things
 
 | Want to add… | Edit… |
 |---|---|
-| New screw type | `src/game/types.ts` (`ScrewType`), then logic in `src/game/state.ts` and rendering in `src/render/board.ts` |
-| New level | `src/game/levels.ts` (or use the procedural generator once implemented) |
-| New scene / overlay | new file in `src/ui/`, register in `src/main.ts` |
-| New theme | `src/styles/index.css` (CSS custom properties under a `[data-theme="..."]` selector) |
-| CrazyGames SDK key | `src/main.ts` — search for `Platform.init` (added in a later pass) |
+| New screw type | `src/game/types.ts` (`ScrewType`), then `state.ts` + `generator.ts` + render in `board.ts` |
+| New procedural difficulty curve | `src/game/generator.ts`, `profileFor()` |
+| New theme | `src/styles/index.css` (CSS custom properties under `[data-theme="..."]`) |
+| CrazyGames SDK config / keys | `src/platform/crazygames.ts` |
 | New sound | `src/core/audio.ts` |
+| New retention loop | new file in `src/retention/`, wire in `main.ts` |
+
+## Game design highlights
+
+- **Bucket-color mechanic** — tap a screw → it flies into a colour-matching slot. 3-in-a-row clears the slot and triggers a coin burst.
+- **Combo system** — consecutive pops within 1.3 s build a multiplier; each pop pitches up the SFX (rising arpeggio).
+- **Star rating** — 1 star for completion, 2 for clearing under par time, 3 for ≤ 75 % of par.
+- **Currency** — coins from per-pop + slot-clear bonuses + time-remaining bonus + daily login.
+- **XP / Rank** — visible rank meter ticks up over levels; pure progress meta.
+- **Daily login streak** — 7-day cycle, escalating to a 500-coin jackpot, **resets on a missed day** (loss-aversion hook).
+- **Near-miss continue** — failed with ≥ 60 % progress? "Watch ad for +30 s" offer keeps the session alive.
+- **Procedural levels** — 10 chapters × 20 levels, generated from a deterministic seed, solver-verified.
+- **Auto-advance** — `level clear → 0.6 s celebration → next level` with zero taps. The "one more level" loop is the default.
+
+## Debug mode
+
+Add `?debug=1` to the URL. The console exposes:
+
+- `window._save()` — read the live save
+- `window._give(n)` — grant `n` coins
+- `window._reset()` — wipe progress
+- `window._jump(chapter, level)` — jump to any level
 
 ## GitHub Pages deployment
 
@@ -81,43 +120,38 @@ The `deploy.yml` workflow runs in two phases:
 1. **Settings → Pages → Source**: set to **GitHub Actions**.
 2. Push to `main` (or trigger the workflow manually from the Actions tab).
 
-The live build will appear at:
-`https://<your-username>.github.io/<repo-name>/`
+The live build will appear at `https://<your-username>.github.io/<repo-name>/`.
 
 To allow deploys from feature branches as well, go to **Settings → Environments → github-pages** and add the branches under "Deployment branches".
 
-The `base` path in `vite.config.ts` defaults to `/unscrewit/`. The workflow overrides it with `VITE_BASE_PATH=/${repo-name}/` so it always matches the actual repo, regardless of the repo's name. For a root deploy (custom domain or CrazyGames upload), build with `VITE_BASE_PATH=/ npm run build`.
+The `base` path in `vite.config.ts` defaults to `/unscrewit/`. The workflow overrides it via `VITE_BASE_PATH=/${repo-name}/` so it stays in sync if the repo is ever renamed. For a root deploy (custom domain or CrazyGames zip), build with `VITE_BASE_PATH=/ npm run build`.
 
 ## CrazyGames submission build
-
-When you're ready to submit to CrazyGames:
 
 ```bash
 VITE_BASE_PATH=/ npm run build
 cd dist && zip -r ../unscrewit.zip . && cd ..
 ```
 
-Upload `unscrewit.zip`. The bundle is fully self-contained.
+Upload `unscrewit.zip`. The bundle is fully self-contained, fetches the CrazyGames SDK at runtime from their CDN, and degrades gracefully (full game playable) if the SDK fails to load.
 
 ## Code style
 
 - Strict TypeScript everywhere — no `any`, no `// @ts-ignore`.
 - ES modules only.
-- Each module has a single clear responsibility.
 - DOM is touched only inside `src/render/` and `src/ui/`. Game logic in `src/game/` is pure.
 - Side-effectful bootstrapping happens only in `src/main.ts`.
 
 ## Roadmap
 
-This scaffold ports the existing prototype gameplay (sliding-screws mechanic) into the new structure. Subsequent passes (in order):
+Future passes:
 
-1. **Pivot mechanic** to bucket-color (Wood Nuts & Bolts style).
-2. **Progression + save**: stars, chapters, coins, XP, schema-versioned save.
-3. **Daily / retention**: login chest, daily quests, daily challenge, weekly tournament.
-4. **Themes / SFX / juice**: 6 themes, particles, combos, screen shake.
-5. **CrazyGames SDK**: ad cadence, rewarded ads, happytime hooks, user data sync.
-6. **Procedural levels**: solver-verified generator, difficulty curve, 200+ levels.
-7. **Polish**: onboarding, achievements, accessibility audit.
+1. **Themes (6 palettes)** — colour-pop progression hook
+2. **Daily quests** + **weekly tournament** (personal-best ladder with AI ghosts)
+3. **Achievements (30+)**
+4. **Special screw types** — frozen, chained, key, rusted, magnetic, bomb
+5. **Onboarding** — guided first session with finger-pointer hints
+6. **Localization (i18n scaffolding)** — strings table, `t()` function
 
 ## License
 
