@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#6aa9ff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <title>Unscrew It</title>
+
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700;800&display=swap"
+  />
+</head>
+<body>
+  <div id="root">
+    <!-- Splash markup is inlined so first paint shows something even before JS runs. -->
+    <div class="boot-splash" id="bootSplash" aria-hidden="true">
+      <div class="boot-splash__title">UNSCREW IT</div>
+      <div class="boot-splash__bar"><div class="boot-splash__bar-fill"></div></div>
+      <div class="boot-splash__tip">Loading…</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
