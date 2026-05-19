@@ -516,7 +516,7 @@ export function screwTypeIntroHtml(type: ScrewType): string {
         <h1>Keys & Locks</h1>
         <p class="tutorial-body">Pop the <b>golden key</b> to unlock all matching <b>locked screws</b>.</p>
         <div class="card-actions single">
-          <button class="primary-btn primary-btn--big" data-action="intro-ack" data-intro-type="key">Got it!</button>
+          <button class="primary-btn primary-btn--big" data-action="intro-ack" data-intro-type="${type}">Got it!</button>
         </div>
       `;
     default:

@@ -16,6 +16,7 @@ import type { BoosterId } from './economy/boosters';
 import { getLevel, LEVELS_PER_CHAPTER, nextLevel, TOTAL_CHAPTERS } from './game/levels';
 import { GameState } from './game/state';
 import type { FailureInfo, LevelResult } from './game/state';
+import type { ScrewType } from './game/types';
 import { eligibleForNearMiss } from './platform/ads';
 import { init as initPlatform, requestRewardedAd, gameplayStart, gameplayStop, happytime } from './platform/crazygames';
 import { claimDaily, dailyStatus } from './retention/dailyLogin';
@@ -158,7 +159,11 @@ function shake(stage: HTMLElement): void {
 }
 
 function bootstrap(): void {
-  void initPlatform();
+  // Notify the SDK once it's ready that gameplay has started. We resolve the
+  // promise immediately if already initialised, so this is always safe.
+  void initPlatform().then(() => {
+    if (loadSave().onboarding.finishedIntro) gameplayStart();
+  });
 
   buildShell();
   fadeOutBootSplash();
@@ -526,8 +531,14 @@ function bootstrap(): void {
         break;
       case 'screw-type-intro-ack':
         updateSave((s) => {
-          if (!s.onboarding.seenScrewTypes.includes(action.introType)) {
-            s.onboarding.seenScrewTypes.push(action.introType);
+          // 'key' and 'locked' share a single intro card — mark both seen at once.
+          const related: ScrewType[] = (action.introType === 'key' || action.introType === 'locked')
+            ? ['key', 'locked']
+            : [action.introType];
+          for (const t of related) {
+            if (!s.onboarding.seenScrewTypes.includes(t)) {
+              s.onboarding.seenScrewTypes.push(t);
+            }
           }
         });
         hideOverlay();

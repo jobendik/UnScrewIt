@@ -174,8 +174,9 @@ export class GameState {
   }
 
   restart(): void {
-    this.hadFailureThisRun = true;
     this.loadLevel(this.chapter, this.levelIdx);
+    // Mark the failure AFTER loadLevel so it survives the state reset.
+    this.hadFailureThisRun = true;
   }
 
   pauseTimer(): void { this.stopTimer(); }
