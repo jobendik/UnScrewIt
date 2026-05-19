@@ -5,6 +5,8 @@
  * Rendering modules in `src/render/` translate them into SVG.
  */
 
+import type { ScrewColorId } from './colors';
+
 export type PlateKind = 'bar' | 'slab';
 
 /** A point on a plate's local (rotated) coordinate system. */
@@ -57,53 +59,45 @@ export interface Plate {
   fallY?: number;
 }
 
-/**
- * Future-facing — the prototype's screws are uniform. Production passes will
- * extend this with `frozen`, `chained`, `key`, `rusted`, `magnetic`, `bomb`.
- */
+/** Future-facing — extended in later passes with frozen/chained/etc. */
 export type ScrewType = 'standard';
 
 export interface Screw {
   id: string;
   /** Hole id this screw currently occupies. */
   holeId: string;
+  color: ScrewColorId;
   type: ScrewType;
 }
 
+/** A single bucket slot at the bottom of the board. */
+export interface BucketSlot {
+  /** Color currently claimed by this slot, or null if empty. */
+  color: ScrewColorId | null;
+  /** Number of screws of `color` placed (0..3). */
+  count: number;
+}
+
+/** Reason a screw cannot be popped right now. */
+export type RemoveBlocker = 'plate-covers' | 'bucket-full' | 'animating' | 'finished';
+
+/** A fully realised level ready to play. */
 export interface LevelDefinition {
-  /** Display name (e.g. "First Board"). */
+  /** Stable id like `1.4` (chapter.index, 1-based) or `P.<seed>` for procedural. */
+  id: string;
+  /** Display name. */
   name: string;
-  /** Holes referenced by this level (positions resolved from the grid). */
+  /** 1-based chapter index. */
+  chapter: number;
+  /** 1-based index within chapter. */
+  indexInChapter: number;
   holes: Hole[];
-  /** Resolved plate list. */
   plates: Plate[];
-  /** Resolved screw list. */
   screws: Screw[];
-  moves: number;
+  /** Number of bucket slots available (typically 5). */
+  bucketSlots: number;
+  /** Time limit in seconds. */
   time: number;
-  hints: number;
-}
-
-/**
- * Input shape consumed by `makeLevel`. The `plates(holes)` factory builds
- * concrete plates against a fresh map of resolved holes.
- */
-export interface LevelTemplate {
-  name: string;
-  holeIds: string[];
-  plates: (holes: Record<string, Hole>) => Plate[];
-  screws: Array<{ id: string; holeId: string; type?: ScrewType }>;
-  moves: number;
-  time: number;
-  hints?: number;
-}
-
-/** Status of a hole considered as a target for the currently-selected screw. */
-export type TargetStatus = 'valid' | 'blocked' | 'occupied' | 'missing';
-
-/** Hint move suggestion. */
-export interface HintMove {
-  screwId: string;
-  targetId: string;
-  score: number;
+  /** "Par" time — completing under this earns the time star. */
+  parTime: number;
 }

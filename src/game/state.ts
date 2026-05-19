@@ -1,138 +1,170 @@
 /**
- * Core gameplay state machine.
+ * Bucket-color gameplay state machine.
+ *
+ * Tap a screw → it flies into the bucket bar. If the bucket can't accept
+ * its colour (or the screw is covered by a plate above), the tap fails
+ * harmlessly with feedback. Once all plates are removed, the level is won.
  *
  * The state machine is intentionally framework-free: it owns no DOM
- * references and emits a single `onChange` callback after every mutation
- * so the renderer can react. UI side-effects (sounds, toasts) are emitted
- * via dedicated callbacks the host wires up at construction time.
+ * references and emits a single `onChange` callback after every mutation.
+ * Side-effects (sounds, animations) flow through dedicated callbacks the
+ * host wires up.
  */
 
-import { UNDO_HISTORY_LIMIT, STAR_THRESHOLDS } from '@/core/config';
 import { clamp } from '@/core/utils';
-import { LEVELS, makeLevel } from './levels';
+import { canAccept, createBucket, place, snapshot as bucketSnapshot, restore as bucketRestore } from './bucket';
+import type { BucketState, PlaceOutcome } from './bucket';
+import type { ScrewColorId } from './colors';
+import { getLevel, levelId, LEVELS_PER_CHAPTER, nextLevel as advanceLevel } from './levels';
 import { pointInPlate, pointNearPlatePinHole, pointOverPlateHole } from './plates';
 import type {
-  HintMove,
+  BucketSlot,
   Hole,
   LevelDefinition,
   Plate,
+  RemoveBlocker,
   Screw,
-  TargetStatus,
 } from './types';
 
 interface UndoSnapshot {
   screws: Screw[];
   plates: Array<{ id: string; status: Plate['status']; pinnedBy: string[] }>;
-  movesLeft: number;
+  bucket: BucketSlot[];
   timeLeft: number;
-  hintsLeft: number;
 }
 
 export interface LevelResult {
-  levelIndex: number;
+  chapter: number;
+  level: number;
+  id: string;
   stars: number;
-  movesLeft: number;
   timeLeft: number;
+  totalTime: number;
+  /** Coins earned in this level run. */
+  coinsEarned: number;
+  /** Highest combo reached in this run. */
+  maxCombo: number;
+  /** Total seconds taken to clear the level. */
+  secondsTaken: number;
   isFinal: boolean;
 }
 
 export interface FailureInfo {
-  levelIndex: number;
+  chapter: number;
+  level: number;
+  id: string;
   reason: string;
+  /** Number of screws cleared / total — used to drive near-miss offers. */
+  progress: number;
 }
 
 export interface StateCallbacks {
-  /** Fired after any state mutation that should redraw the board. */
   onChange?: () => void;
-  /** Player tapped an empty hole without a screw selected. */
-  onPromptSelect?: () => void;
-  /** Player chose an invalid target. */
-  onInvalidTarget?: (reason: 'occupied' | 'blocked' | 'unknown') => void;
-  /** Animation requested: move `screwId` from `from` to `to`, then resolve. */
-  onScrewMove?: (
+  /**
+   * Animation requested: move `screwId` from `from` to the bucket slot at
+   * `slotIndex`. The renderer calls `resolve()` when it's ready for the
+   * screw to be removed from the board and added to the bucket.
+   */
+  onScrewToBucket?: (
     screwId: string,
     from: Hole,
-    to: Hole,
+    slotIndex: number,
+    outcome: PlaceOutcome,
     resolve: () => void,
   ) => void;
-  /** Plates released this turn; renderer should play the fall animation. */
+  onRemoveBlocked?: (screwId: string, reason: RemoveBlocker) => void;
   onPlatesFalling?: (plateIds: string[], onFinish: () => void) => void;
-  /** Level cleared. */
   onWin?: (result: LevelResult) => void;
-  /** Level failed. */
   onLose?: (info: FailureInfo) => void;
-  /** A hint was just produced. */
-  onHint?: () => void;
+  /** Fired every time a screw lands in the bucket — host can play SFX. */
+  onScrewPopped?: (combo: number) => void;
+  /** Fired when a bucket slot just cleared (3-in-a-row). */
+  onSlotCleared?: (slotIndex: number, color: ScrewColorId, coins: number, combo: number) => void;
 }
+
+const COMBO_WINDOW_MS = 1300;
+const COIN_PER_POP = 3;
+const COIN_PER_CLEAR = 25;
 
 export class GameState {
   level!: LevelDefinition;
-  levelIndex = 0;
+  chapter = 1;
+  levelIdx = 1;
 
-  movesLeft = 0;
+  bucket!: BucketState;
   timeLeft = 0;
-  hintsLeft = 0;
-
-  selected: string | null = null;
-  validTargets = new Set<string>();
-  invalidTargets = new Set<string>();
-  hint: HintMove | null = null;
 
   animating = false;
   completed = false;
   lost = false;
   startedAt = 0;
-  starsAwarded = 0;
 
+  /** Combo counter — increments per pop within the combo window. */
+  combo = 0;
+  /** Best combo this run. */
+  maxCombo = 0;
+  /** Coins accumulated since level start. */
+  coinsThisLevel = 0;
+
+  private comboTimer: number | null = null;
   private undoStack: UndoSnapshot[] = [];
   private timerId: number | null = null;
   private callbacks: StateCallbacks;
+  private screwsCleared = 0;
+  private initialScrewCount = 0;
+  private bonusTimeAwarded = 0;
 
   constructor(callbacks: StateCallbacks = {}) {
     this.callbacks = callbacks;
   }
 
-  get totalLevels(): number {
-    return LEVELS.length;
+  /** Total screws in the active level, for progress %. */
+  get totalScrews(): number { return this.initialScrewCount; }
+  get screwsRemaining(): number { return this.level.screws.length; }
+  get progressFraction(): number {
+    return this.initialScrewCount === 0 ? 0 : this.screwsCleared / this.initialScrewCount;
   }
+  get bucketSlots(): BucketSlot[] { return this.bucket.slots; }
 
-  get undoDepth(): number {
-    return this.undoStack.length;
-  }
-
-  loadLevel(index: number): void {
-    const template = LEVELS[clamp(index, 0, LEVELS.length - 1)];
-    if (!template) throw new Error(`No level template at index ${index}`);
-    const level = makeLevel(template);
+  loadLevel(chapter: number, level: number): void {
+    const def = getLevel(chapter, level);
     this.stopTimer();
-    this.levelIndex = clamp(index, 0, LEVELS.length - 1);
-    this.level = level;
-    this.movesLeft = level.moves;
-    this.timeLeft = level.time;
-    this.hintsLeft = level.hints;
-    this.selected = null;
-    this.validTargets = new Set();
-    this.invalidTargets = new Set();
-    this.hint = null;
-    this.undoStack = [];
+    this.cancelComboTimer();
+    this.chapter = chapter;
+    this.levelIdx = level;
+    this.level = def;
+    this.bucket = createBucket(def.bucketSlots);
+    this.timeLeft = def.time;
     this.animating = false;
     this.completed = false;
     this.lost = false;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.coinsThisLevel = 0;
+    this.screwsCleared = 0;
+    this.initialScrewCount = def.screws.length;
+    this.bonusTimeAwarded = 0;
+    this.undoStack = [];
     this.startedAt = Date.now();
-    this.starsAwarded = 0;
     this.updatePins();
     this.emitChange();
     this.startTimer();
   }
 
-  /** Restart the current level. */
-  restart(): void { this.loadLevel(this.levelIndex); }
+  restart(): void { this.loadLevel(this.chapter, this.levelIdx); }
 
-  /** Pause the timer (used when the tab is hidden or an overlay is shown). */
   pauseTimer(): void { this.stopTimer(); }
-  /** Resume the timer if the level is still in progress. */
-  resumeTimer(): void {
-    if (!this.completed && !this.lost) this.startTimer();
+  resumeTimer(): void { if (!this.completed && !this.lost) this.startTimer(); }
+
+  /** Grant bonus time (e.g. from a rewarded ad continue). */
+  grantContinue(seconds: number): void {
+    if (this.lost) {
+      this.lost = false;
+      this.bonusTimeAwarded += seconds;
+      this.timeLeft = Math.max(this.timeLeft, 0) + seconds;
+      this.startTimer();
+      this.emitChange();
+    }
   }
 
   private startTimer(): void {
@@ -152,62 +184,17 @@ export class GameState {
     }
   }
 
-  // ── Lookups ────────────────────────────────────────────────────────────────
+  // ── Lookups ────────────────────────────────────────────────────────────
 
-  holeById(id: string): Hole | undefined {
-    return this.level.holes.find((h) => h.id === id);
-  }
+  holeById(id: string): Hole | undefined { return this.level.holes.find((h) => h.id === id); }
+  activePlates(): Plate[] { return this.level.plates.filter((p) => p.status === 'active'); }
+  livePlates(): Plate[] { return this.level.plates.filter((p) => p.status !== 'removed'); }
 
-  screwById(id: string): Screw | undefined {
-    return this.level.screws.find((s) => s.id === id);
-  }
-
-  occupiedHoleIds(except: string | null = null): Set<string> {
-    return new Set(
-      this.level.screws
-        .filter((s) => s.id !== except)
-        .map((s) => s.holeId),
-    );
-  }
-
-  activePlates(): Plate[] {
-    return this.level.plates.filter((p) => p.status === 'active');
-  }
-
-  livePlates(): Plate[] {
-    return this.level.plates.filter((p) => p.status !== 'removed');
-  }
-
-  // ── Targeting ─────────────────────────────────────────────────────────────
-
-  isHoleBlocked(hole: Hole): boolean {
+  private isHoleBlocked(hole: Hole): boolean {
     for (const p of this.activePlates()) {
       if (pointInPlate(p, hole) && !pointOverPlateHole(p, hole)) return true;
     }
     return false;
-  }
-
-  targetStatus(holeId: string, movingScrewId: string | null): TargetStatus {
-    const hole = this.holeById(holeId);
-    if (!hole) return 'missing';
-    if (this.occupiedHoleIds(movingScrewId).has(holeId)) return 'occupied';
-    if (this.isHoleBlocked(hole)) return 'blocked';
-    return 'valid';
-  }
-
-  private computeTargets(screwId: string): { valid: Set<string>; invalid: Set<string> } {
-    const valid = new Set<string>();
-    const invalid = new Set<string>();
-    const screw = this.screwById(screwId);
-    for (const hole of this.level.holes) {
-      const status = this.targetStatus(hole.id, screwId);
-      if (status === 'valid' && screw?.holeId !== hole.id) {
-        valid.add(hole.id);
-      } else if (status !== 'occupied') {
-        invalid.add(hole.id);
-      }
-    }
-    return { valid, invalid };
   }
 
   private updatePins(): void {
@@ -220,75 +207,56 @@ export class GameState {
     }
   }
 
-  // ── Selection & moves ─────────────────────────────────────────────────────
+  /** Why can't this screw be tapped right now? */
+  removeBlocker(screw: Screw): RemoveBlocker | null {
+    if (this.animating) return 'animating';
+    if (this.completed || this.lost) return 'finished';
+    const hole = this.holeById(screw.holeId);
+    if (!hole || this.isHoleBlocked(hole)) return 'plate-covers';
+    if (!canAccept(this.bucket, screw.color)) return 'bucket-full';
+    return null;
+  }
 
-  selectScrew(id: string): void {
+  /** Handle a tap on a screw. */
+  tapScrew(screwId: string): void {
     if (this.animating || this.completed || this.lost) return;
-    if (this.selected === id) {
-      this.clearSelection();
-      this.emitChange();
+    const screw = this.level.screws.find((s) => s.id === screwId);
+    if (!screw) return;
+    const blocker = this.removeBlocker(screw);
+    if (blocker) {
+      this.callbacks.onRemoveBlocked?.(screwId, blocker);
+      this.breakCombo();
       return;
     }
-    this.selected = id;
-    const { valid, invalid } = this.computeTargets(id);
-    this.validTargets = valid;
-    this.invalidTargets = invalid;
-    this.hint = null;
-    this.emitChange();
+    this.popScrew(screw);
   }
 
-  clearSelection(): void {
-    this.selected = null;
-    this.validTargets = new Set();
-    this.invalidTargets = new Set();
-    this.hint = null;
-  }
-
-  /** Handle a tap on a hole. Returns the result for the caller to feedback on. */
-  tapHole(holeId: string): TargetStatus | 'no-selection' {
-    if (this.animating || this.completed || this.lost) return 'missing';
-    if (!this.selected) {
-      const occupied = this.level.screws.find((s) => s.holeId === holeId);
-      if (occupied) {
-        this.selectScrew(occupied.id);
-        return 'valid';
-      }
-      this.callbacks.onPromptSelect?.();
-      return 'no-selection';
-    }
-    const status = this.targetStatus(holeId, this.selected);
-    if (status !== 'valid') {
-      const reason: 'occupied' | 'blocked' | 'unknown' =
-        status === 'occupied' ? 'occupied' :
-        status === 'blocked'  ? 'blocked'  : 'unknown';
-      this.callbacks.onInvalidTarget?.(reason);
-      return status;
-    }
-    const screw = this.screwById(this.selected);
-    if (screw && screw.holeId === holeId) return 'occupied';
-    this.moveSelectedScrew(holeId);
-    return 'valid';
-  }
-
-  private moveSelectedScrew(targetHoleId: string): void {
-    if (!this.selected) return;
-    const screw = this.screwById(this.selected);
-    if (!screw) return;
+  private popScrew(screw: Screw): void {
     const fromHole = this.holeById(screw.holeId);
-    const toHole = this.holeById(targetHoleId);
-    if (!fromHole || !toHole) return;
+    if (!fromHole) return;
+
+    // Pre-compute placement outcome so the renderer knows which slot to fly to.
+    const projectedBucket = createBucket(this.bucket.slots.length);
+    projectedBucket.slots = bucketSnapshot(this.bucket);
+    const outcome = place(projectedBucket, screw.color);
 
     this.saveUndo();
     this.animating = true;
-    const screwId = screw.id;
-    this.clearSelection();
     this.emitChange();
 
-    const finish = () => {
-      const current = this.screwById(screwId);
-      if (!current) return;
-      current.holeId = targetHoleId;
-      this.movesLeft -= 1;
+    const commit = (): void => {
+      // Apply the actual placement and remove the screw.
+      const realOutcome = place(this.bucket, screw.color);
+      this.level.screws = this.level.screws.filter((s) => s.id !== screw.id);
+      this.screwsCleared += 1;
+      this.bumpCombo();
+      this.awardCoins(COIN_PER_POP * Math.max(1, this.combo));
+      this.callbacks.onScrewPopped?.(this.combo);
+      if (realOutcome.kind === 'cleared') {
+        const reward = COIN_PER_CLEAR * Math.max(1, this.combo);
+        this.awardCoins(reward);
+        this.callbacks.onSlotCleared?.(realOutcome.slotIndex, realOutcome.color, reward, this.combo);
+      }
       this.updatePins();
 
       const released = this.releaseUnpinnedPlates();
@@ -297,15 +265,15 @@ export class GameState {
         this.callbacks.onPlatesFalling?.(released, () => this.finishFalling(released));
       } else {
         this.animating = false;
-        this.maybeLoseByMoves();
+        this.maybeLoseByLockout();
         this.emitChange();
       }
     };
 
-    if (this.callbacks.onScrewMove) {
-      this.callbacks.onScrewMove(screwId, fromHole, toHole, finish);
+    if (this.callbacks.onScrewToBucket) {
+      this.callbacks.onScrewToBucket(screw.id, fromHole, outcome.slotIndex, outcome, commit);
     } else {
-      finish();
+      commit();
     }
   }
 
@@ -332,19 +300,34 @@ export class GameState {
     this.animating = false;
     this.emitChange();
     this.checkWin();
-    if (!this.completed) this.maybeLoseByMoves();
+    if (!this.completed) this.maybeLoseByLockout();
   }
 
-  private maybeLoseByMoves(): void {
-    if (!this.completed && !this.lost && this.movesLeft <= 0 && this.activePlates().length > 0) {
-      this.fail('No moves left!');
+  /**
+   * Detect bucket lockout: no removable screw can be accepted by the
+   * bucket, so the player is stuck. Triggers a fail-by-lockout.
+   */
+  private maybeLoseByLockout(): void {
+    if (this.completed || this.lost) return;
+    if (this.activePlates().length === 0) return;
+    for (const screw of this.level.screws) {
+      const blocker = this.removeBlocker(screw);
+      if (!blocker) return;
     }
+    this.fail('Bucket locked — no valid moves');
   }
 
   private fail(reason: string): void {
     this.lost = true;
     this.stopTimer();
-    this.callbacks.onLose?.({ levelIndex: this.levelIndex, reason });
+    this.cancelComboTimer();
+    this.callbacks.onLose?.({
+      chapter: this.chapter,
+      level: this.levelIdx,
+      id: levelId(this.chapter, this.levelIdx),
+      reason,
+      progress: this.progressFraction,
+    });
   }
 
   private checkWin(): void {
@@ -353,24 +336,65 @@ export class GameState {
     if (this.activePlates().length === 0 && !stillFalling) {
       this.completed = true;
       this.stopTimer();
-      const moveRatio = clamp(this.movesLeft / Math.max(1, this.level.moves), 0, 1);
-      const timeRatio = clamp(this.timeLeft / Math.max(1, this.level.time), 0, 1);
-      const stars =
-        1 +
-        (moveRatio > STAR_THRESHOLDS.movesRatio ? 1 : 0) +
-        (timeRatio > STAR_THRESHOLDS.timeRatio ? 1 : 0);
-      this.starsAwarded = stars;
-      this.callbacks.onWin?.({
-        levelIndex: this.levelIndex,
+      this.cancelComboTimer();
+      const secondsTaken = clamp(
+        this.level.time - this.timeLeft - this.bonusTimeAwarded,
+        0,
+        this.level.time,
+      );
+      const timeStar = secondsTaken <= this.level.parTime ? 1 : 0;
+      const fastBonus = secondsTaken <= this.level.parTime * 0.75 ? 1 : 0;
+      const stars = clamp(1 + timeStar + fastBonus, 1, 3);
+      // Time-bonus coins
+      const finalBonus = Math.max(0, this.timeLeft) * 2 + (stars - 1) * 25;
+      this.awardCoins(finalBonus);
+      const result: LevelResult = {
+        chapter: this.chapter,
+        level: this.levelIdx,
+        id: levelId(this.chapter, this.levelIdx),
         stars,
-        movesLeft: this.movesLeft,
         timeLeft: this.timeLeft,
-        isFinal: this.levelIndex === LEVELS.length - 1,
-      });
+        totalTime: this.level.time,
+        coinsEarned: this.coinsThisLevel,
+        maxCombo: this.maxCombo,
+        secondsTaken,
+        isFinal: !advanceLevel(this.chapter, this.levelIdx),
+      };
+      this.callbacks.onWin?.(result);
     }
   }
 
-  // ── Undo / Hint ───────────────────────────────────────────────────────────
+  // ── Combo + currency ──────────────────────────────────────────────────
+
+  private bumpCombo(): void {
+    this.combo += 1;
+    if (this.combo > this.maxCombo) this.maxCombo = this.combo;
+    this.cancelComboTimer();
+    this.comboTimer = window.setTimeout(() => {
+      this.combo = 0;
+      this.emitChange();
+    }, COMBO_WINDOW_MS);
+  }
+
+  private breakCombo(): void {
+    if (this.combo === 0) return;
+    this.combo = 0;
+    this.cancelComboTimer();
+    this.emitChange();
+  }
+
+  private cancelComboTimer(): void {
+    if (this.comboTimer !== null) {
+      window.clearTimeout(this.comboTimer);
+      this.comboTimer = null;
+    }
+  }
+
+  private awardCoins(n: number): void {
+    this.coinsThisLevel += n;
+  }
+
+  // ── Undo ──────────────────────────────────────────────────────────────
 
   private saveUndo(): void {
     this.undoStack.push({
@@ -378,13 +402,12 @@ export class GameState {
       plates: this.level.plates.map((p) => ({
         id: p.id,
         status: p.status,
-        pinnedBy: [...(p.pinnedBy || [])],
+        pinnedBy: [...(p.pinnedBy ?? [])],
       })),
-      movesLeft: this.movesLeft,
+      bucket: bucketSnapshot(this.bucket),
       timeLeft: this.timeLeft,
-      hintsLeft: this.hintsLeft,
     });
-    if (this.undoStack.length > UNDO_HISTORY_LIMIT) this.undoStack.shift();
+    if (this.undoStack.length > 10) this.undoStack.shift();
   }
 
   restoreUndo(): boolean {
@@ -399,71 +422,20 @@ export class GameState {
         p.pinnedBy = [...saved.pinnedBy];
       }
     }
-    this.movesLeft = snap.movesLeft;
+    bucketRestore(this.bucket, snap.bucket);
     this.timeLeft = snap.timeLeft;
-    this.hintsLeft = snap.hintsLeft;
-    this.clearSelection();
+    if (this.screwsCleared > 0) this.screwsCleared -= 1;
     this.updatePins();
+    this.breakCombo();
     this.emitChange();
     return true;
   }
 
-  requestHint(): HintMove | null {
-    if (this.animating || this.completed || this.lost) return null;
-    if (this.hintsLeft <= 0) return null;
-    const hint = this.findHintMove();
-    if (!hint) return null;
-    this.hintsLeft -= 1;
-    this.hint = hint;
-    this.selected = hint.screwId;
-    const { valid, invalid } = this.computeTargets(hint.screwId);
-    this.validTargets = valid;
-    this.invalidTargets = invalid;
-    this.callbacks.onHint?.();
-    this.emitChange();
-    return hint;
-  }
+  get undoDepth(): number { return this.undoStack.length; }
 
-  private findHintMove(): HintMove | null {
-    this.updatePins();
-    let best: HintMove | null = null;
-    for (const s of this.level.screws) {
-      const from = this.holeById(s.holeId);
-      if (!from) continue;
-      const targets = this.computeTargets(s.id).valid;
-      for (const targetId of targets) {
-        const snapshot = this.level.screws.map((x) => ({ ...x }));
-        const tmp = snapshot.find((x) => x.id === s.id);
-        if (!tmp) continue;
-        tmp.holeId = targetId;
-        const wouldRelease = this.level.plates
-          .filter((p) => p.status === 'active' && p.pinnedBy?.includes(s.id))
-          .filter((p) => {
-            let count = 0;
-            for (const ts of snapshot) {
-              const h = this.holeById(ts.holeId);
-              if (h && pointNearPlatePinHole(p, h)) count++;
-            }
-            return count === 0;
-          }).length;
-        const score = wouldRelease * 10 - (this.pointNearAnyActivePlateHole(targetId) ? 2 : 0);
-        if (!best || score > best.score) {
-          best = { screwId: s.id, targetId, score };
-        }
-      }
-    }
-    return best;
-  }
+  /** Total levels in the campaign — used for progress display. */
+  get campaignTotal(): number { return 10 * LEVELS_PER_CHAPTER; }
+  get campaignIndex(): number { return (this.chapter - 1) * LEVELS_PER_CHAPTER + this.levelIdx; }
 
-  private pointNearAnyActivePlateHole(holeId: string): boolean {
-    const h = this.holeById(holeId);
-    if (!h) return false;
-    return this.activePlates().some((p) => pointNearPlatePinHole(p, h));
-  }
-
-  // ── Notification ──────────────────────────────────────────────────────────
-
-  private emitChange(): void {
-    this.callbacks.onChange?.();
-  }
+  private emitChange(): void { this.callbacks.onChange?.(); }
 }

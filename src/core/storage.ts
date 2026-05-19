@@ -1,9 +1,9 @@
 /**
- * Thin localStorage wrapper. Handles private-browsing fallback (where
- * localStorage throws or is null), namespaces keys consistently, and
- * coerces stored values back to numbers.
+ * Low-level localStorage shim. Handles private-browsing fallback (where
+ * localStorage throws or is null) and namespaces keys consistently.
  *
- * Save schema lives in a future module; this is the low-level shim.
+ * Application save state goes through `core/save.ts`, which builds on
+ * this module for the actual storage.
  */
 
 import { STORAGE_NAMESPACE } from './config';
@@ -43,36 +43,3 @@ export function writeString(key: string, value: string): void {
   }
   memoryFallback[full] = value;
 }
-
-export function readNumber(key: string, fallback = 0): number {
-  const raw = readString(key);
-  if (raw === null) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-export function writeNumber(key: string, value: number): void {
-  writeString(key, String(value));
-}
-
-/**
- * Lightweight player progress accessor. This will be replaced by the full
- * schema-versioned save in a later pass, but it covers what the prototype
- * actually persists today.
- */
-export const Progress = {
-  get bestLevel(): number { return readNumber('bestLevel', 0); },
-  set bestLevel(v: number) { writeNumber('bestLevel', v); },
-
-  get totalStars(): number { return readNumber('totalStars', 0); },
-  set totalStars(v: number) { writeNumber('totalStars', v); },
-
-  starsFor(levelIndex: number): number {
-    return readNumber(`level.${levelIndex}.stars`, 0);
-  },
-
-  recordStars(levelIndex: number, stars: number): void {
-    const previous = this.starsFor(levelIndex);
-    if (stars > previous) writeNumber(`level.${levelIndex}.stars`, stars);
-  },
-};
