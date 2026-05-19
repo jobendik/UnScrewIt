@@ -71,16 +71,20 @@ The original single-file prototype is preserved at `UnscrewIt_Polished.html` for
 
 ## GitHub Pages deployment
 
-The `deploy.yml` workflow builds the Vite project and publishes `dist/` to GitHub Pages on every push to `main` or `claude/**` branches.
+The `deploy.yml` workflow runs in two phases:
+
+- **Build** runs on every push and every PR (including `claude/**` branches) so CI gates regressions everywhere.
+- **Deploy** runs only on pushes to `main`, matching GitHub's default `github-pages` environment branch policy.
 
 **One-time setup on the repository:**
 
-1. Go to **Settings → Pages**.
-2. Set **Source** to **GitHub Actions**.
-3. Push to `main` (or trigger the workflow manually from the Actions tab).
+1. **Settings → Pages → Source**: set to **GitHub Actions**.
+2. Push to `main` (or trigger the workflow manually from the Actions tab).
 
 The live build will appear at:
 `https://<your-username>.github.io/<repo-name>/`
+
+To allow deploys from feature branches as well, go to **Settings → Environments → github-pages** and add the branches under "Deployment branches".
 
 The `base` path in `vite.config.ts` defaults to `/unscrewit/`. The workflow overrides it with `VITE_BASE_PATH=/${repo-name}/` so it always matches the actual repo, regardless of the repo's name. For a root deploy (custom domain or CrazyGames upload), build with `VITE_BASE_PATH=/ npm run build`.
 
