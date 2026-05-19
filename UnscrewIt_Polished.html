@@ -1,0 +1,1307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Unscrew It — Polished Web Prototype</title>
+<style>
+  :root {
+    --bg0: #6ea6ff;
+    --bg1: #f6c58f;
+    --panel: #fff2c7;
+    --panel-edge: #9d5a25;
+    --ink: #5d3418;
+    --cream: #fff6d7;
+    --danger: #e85b4b;
+    --ok: #4cc36b;
+    --gold: #ffcc42;
+    --blue: #44b9f4;
+    --shadow: rgba(57, 31, 10, .28);
+    --soft-shadow: 0 16px 40px rgba(58, 31, 10, .24);
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    font-family: ui-rounded, "Avenir Next", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at 20% 8%, rgba(255,255,255,.72), transparent 24%),
+      radial-gradient(circle at 80% 18%, rgba(255,255,255,.45), transparent 20%),
+      linear-gradient(180deg, #6aa9ff 0%, #b3ddff 42%, #f5c68d 100%);
+    user-select: none;
+    touch-action: none;
+  }
+
+  body::before,
+  body::after {
+    content: "";
+    position: fixed;
+    inset: auto -10% -80px -10%;
+    height: 210px;
+    background: radial-gradient(70% 120% at 50% 0%, rgba(255,255,255,.5), transparent 64%);
+    pointer-events: none;
+  }
+
+  #app {
+    height: 100%;
+    display: grid;
+    place-items: center;
+    padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+
+  .shell {
+    width: min(100vw - 16px, 520px);
+    height: min(100vh - 16px, 920px);
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 10px;
+    position: relative;
+  }
+
+  .hud-top {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .pill {
+    min-height: 42px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: linear-gradient(#fff6c8, #ffc96f);
+    border: 3px solid #a55b1f;
+    box-shadow: 0 6px 0 #6c3815, 0 10px 20px rgba(78, 38, 10, .24);
+    color: #7b3d13;
+    font-weight: 1000;
+    letter-spacing: .2px;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    text-shadow: 0 1px 0 rgba(255,255,255,.55);
+    white-space: nowrap;
+  }
+
+  .pill.small {
+    min-width: 84px;
+    justify-self: stretch;
+    font-size: 14px;
+    box-shadow: 0 4px 0 #6c3815, 0 8px 18px rgba(78, 38, 10, .18);
+  }
+
+  .pill.level {
+    min-width: 142px;
+    font-size: 17px;
+    transform: translateY(3px);
+  }
+
+  .subline {
+    font-size: 11px;
+    font-weight: 900;
+    opacity: .72;
+    text-transform: uppercase;
+    display: block;
+    line-height: 1;
+  }
+
+  .board-stage {
+    min-height: 0;
+    position: relative;
+    border-radius: 30px;
+    padding: 8px;
+    background: linear-gradient(180deg, rgba(255,255,255,.45), rgba(255,255,255,.08));
+    box-shadow: var(--soft-shadow);
+    overflow: hidden;
+  }
+
+  #boardSvg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 26px;
+    filter: drop-shadow(0 12px 18px rgba(91, 48, 14, .18));
+  }
+
+  .bottom-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+  }
+
+  .tool-btn,
+  .level-btn {
+    border: 0;
+    min-height: 58px;
+    border-radius: 18px;
+    background: linear-gradient(#fff3be, #f39834);
+    box-shadow: 0 6px 0 #8f4d1d, 0 12px 20px rgba(75, 34, 8, .22);
+    color: #71350f;
+    font-weight: 1000;
+    font-size: 13px;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 1px;
+    cursor: pointer;
+    transition: transform .08s ease, filter .15s ease, opacity .15s ease;
+  }
+
+  .tool-btn:active,
+  .level-btn:active { transform: translateY(4px); box-shadow: 0 2px 0 #8f4d1d, 0 6px 14px rgba(75,34,8,.20); }
+  .tool-btn:disabled { opacity: .48; cursor: default; filter: grayscale(.3); }
+  .tool-icon { font-size: 24px; line-height: 1; }
+  .tool-count { font-size: 11px; opacity: .72; margin-top: -2px; }
+
+  .toast {
+    position: absolute;
+    left: 50%;
+    bottom: 86px;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(92, 47, 17, .93);
+    color: #fff7d7;
+    border: 2px solid rgba(255, 242, 199, .35);
+    padding: 9px 14px;
+    border-radius: 999px;
+    box-shadow: 0 10px 30px rgba(72, 31, 8, .25);
+    font-weight: 900;
+    font-size: 14px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 30;
+    max-width: min(92vw, 420px);
+    text-align: center;
+  }
+
+  .toast.show { animation: toastIn 1.35s cubic-bezier(.19, 1, .22, 1) forwards; }
+  @keyframes toastIn {
+    0% { opacity: 0; transform: translateX(-50%) translateY(22px) scale(.95); }
+    12%, 78% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-8px) scale(.98); }
+  }
+
+  .overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 50;
+    display: none;
+    place-items: center;
+    padding: 16px;
+    background: rgba(51, 23, 6, .43);
+    backdrop-filter: blur(5px);
+  }
+
+  .overlay.show { display: grid; }
+
+  .card {
+    width: min(92%, 390px);
+    border-radius: 28px;
+    padding: 22px;
+    text-align: center;
+    color: #723712;
+    background: linear-gradient(180deg, #fff8da 0%, #ffd888 100%);
+    border: 4px solid #9e5a24;
+    box-shadow: 0 8px 0 #6b3714, 0 24px 50px rgba(56, 25, 5, .38);
+  }
+
+  .card h1 {
+    margin: 0 0 8px;
+    font-size: clamp(28px, 7vw, 42px);
+    line-height: .98;
+    letter-spacing: -.8px;
+  }
+
+  .card p { margin: 8px 0; font-weight: 800; opacity: .82; }
+  .stars { font-size: 36px; letter-spacing: 4px; margin: 10px 0 8px; filter: drop-shadow(0 3px 0 rgba(100,50,12,.25)); }
+
+  .card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 18px;
+  }
+
+  .card-actions.single { grid-template-columns: 1fr; }
+
+  .primary-btn,
+  .secondary-btn {
+    border: 0;
+    border-radius: 18px;
+    padding: 14px 10px;
+    font-weight: 1000;
+    color: #fff;
+    cursor: pointer;
+    box-shadow: 0 5px 0 rgba(76, 41, 12, .38);
+  }
+
+  .primary-btn { background: linear-gradient(#6ce180, #1fae51); }
+  .secondary-btn { background: linear-gradient(#a3b4c8, #63738c); }
+
+  .level-select {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+    max-height: 260px;
+    overflow: auto;
+    padding: 3px 2px 8px;
+    margin-top: 12px;
+  }
+
+  .level-btn {
+    min-height: 52px;
+    border-radius: 14px;
+  }
+
+  .level-btn.locked { opacity: .45; filter: grayscale(.65); }
+
+  /* SVG look */
+  .svg-button { cursor: pointer; }
+  .screw-hit { fill: transparent; pointer-events: all; }
+  .screw-visible { filter: url(#screwShadow); }
+  .plate { filter: url(#plateShadow); }
+  .valid-target { animation: pulseTarget .75s ease-in-out infinite alternate; }
+  .invalid-target { opacity: .38; }
+  .hint-pulse { animation: hintPulse .7s ease-in-out infinite alternate; }
+
+  @keyframes pulseTarget {
+    from { opacity: .48; r: 20px; }
+    to { opacity: 1; r: 28px; }
+  }
+
+  @keyframes hintPulse {
+    from { filter: drop-shadow(0 0 0 rgba(255,255,255,0)); transform: scale(1); }
+    to { filter: drop-shadow(0 0 16px rgba(255,255,255,.95)); transform: scale(1.06); }
+  }
+
+  .falling-plate { pointer-events: none; }
+  .shake { animation: boardShake .18s ease-in-out 2; }
+  @keyframes boardShake {
+    0% { transform: translateX(0); }
+    25% { transform: translateX(-3px) rotate(-.25deg); }
+    75% { transform: translateX(3px) rotate(.25deg); }
+    100% { transform: translateX(0); }
+  }
+
+  @media (max-height: 720px) {
+    .shell { gap: 6px; }
+    .pill { min-height: 36px; padding: 5px 10px; }
+    .tool-btn { min-height: 48px; border-radius: 14px; }
+    .tool-icon { font-size: 19px; }
+    .bottom-bar { gap: 6px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <main class="shell" aria-label="Unscrew It web prototype">
+    <section class="hud-top">
+      <div class="pill small"><span>⏱</span><span><span class="subline">Time</span><span id="timeText">00:00</span></span></div>
+      <div class="pill level"><span id="levelText">Level 1</span></div>
+      <div class="pill small"><span>🔩</span><span><span class="subline">Moves</span><span id="movesText">0</span></span></div>
+    </section>
+
+    <section id="boardStage" class="board-stage">
+      <svg id="boardSvg" viewBox="0 0 600 900" role="img" aria-label="Puzzle board"></svg>
+    </section>
+
+    <section class="bottom-bar" aria-label="Tools">
+      <button id="undoBtn" class="tool-btn" type="button"><span class="tool-icon">↶</span><span>Undo</span><span id="undoCount" class="tool-count">0</span></button>
+      <button id="hintBtn" class="tool-btn" type="button"><span class="tool-icon">💡</span><span>Hint</span><span id="hintCount" class="tool-count">3</span></button>
+      <button id="restartBtn" class="tool-btn" type="button"><span class="tool-icon">⟳</span><span>Restart</span><span class="tool-count">level</span></button>
+      <button id="levelsBtn" class="tool-btn" type="button"><span class="tool-icon">☰</span><span>Levels</span><span id="progressText" class="tool-count">1/12</span></button>
+    </section>
+
+    <div id="toast" class="toast"></div>
+
+    <section id="overlay" class="overlay" aria-live="polite">
+      <div id="overlayCard" class="card"></div>
+    </section>
+  </main>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const NS = "http://www.w3.org/2000/svg";
+  const W = 600, H = 900;
+  const BOARD = { x: 52, y: 126, w: 496, h: 650, r: 28 };
+  const SCREW_R = 17;
+  const HOLE_R = 18;
+  const PIN_TOL = 13;
+  const FALL_MS = 760;
+  const MOVE_MS = 250;
+
+  const svg = document.getElementById("boardSvg");
+  const stage = document.getElementById("boardStage");
+  const timeText = document.getElementById("timeText");
+  const movesText = document.getElementById("movesText");
+  const levelText = document.getElementById("levelText");
+  const undoCount = document.getElementById("undoCount");
+  const hintCount = document.getElementById("hintCount");
+  const progressText = document.getElementById("progressText");
+  const toast = document.getElementById("toast");
+  const overlay = document.getElementById("overlay");
+  const overlayCard = document.getElementById("overlayCard");
+
+  const buttons = {
+    undo: document.getElementById("undoBtn"),
+    hint: document.getElementById("hintBtn"),
+    restart: document.getElementById("restartBtn"),
+    levels: document.getElementById("levelsBtn"),
+  };
+
+  const store = {
+    get bestLevel() { return Number(localStorage.getItem("unscrew_web_bestLevel") || 0); },
+    set bestLevel(v) { localStorage.setItem("unscrew_web_bestLevel", String(v)); },
+    get totalStars() { return Number(localStorage.getItem("unscrew_web_totalStars") || 0); },
+    set totalStars(v) { localStorage.setItem("unscrew_web_totalStars", String(v)); }
+  };
+
+  const AudioKit = {
+    ctx: null,
+    enabled: true,
+    ensure() {
+      if (!this.enabled) return null;
+      if (!this.ctx) this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (this.ctx.state === "suspended") this.ctx.resume();
+      return this.ctx;
+    },
+    tone(freq, dur = .06, type = "sine", gain = .045) {
+      const ctx = this.ensure();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const amp = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, ctx.currentTime);
+      amp.gain.setValueAtTime(0.0001, ctx.currentTime);
+      amp.gain.exponentialRampToValueAtTime(gain, ctx.currentTime + .012);
+      amp.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      osc.connect(amp).connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + dur + .02);
+    },
+    click() { this.tone(520, .045, "square", .028); },
+    place() { this.tone(320, .07, "triangle", .04); setTimeout(() => this.tone(520, .05, "sine", .028), 30); },
+    drop() { this.tone(105, .16, "sawtooth", .035); },
+    bad() { this.tone(120, .12, "square", .026); },
+    win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => this.tone(f, .12, "sine", .042), i * 75)); }
+  };
+
+  const COL = [110, 205, 300, 395, 490];
+  const ROW = [165, 260, 355, 450, 545, 640, 735];
+  const GRID = {};
+  "ABCDE".split("").forEach((c, ci) => ROW.forEach((y, ri) => {
+    GRID[c + (ri + 1)] = { id: c + (ri + 1), x: COL[ci], y };
+  }));
+
+  const plateColors = {
+    red:    { fill: "#f25245", edge: "#ad221d", top: "#ff8a79" },
+    yellow: { fill: "#ffc43d", edge: "#b77612", top: "#ffe06f" },
+    blue:   { fill: "#35a9f3", edge: "#1372aa", top: "#73cdfb" },
+    green:  { fill: "#63c84f", edge: "#2e8d24", top: "#9ee989" },
+    pink:   { fill: "#f45dbb", edge: "#ad2b79", top: "#ff9ddb" },
+    purple: { fill: "#9057f6", edge: "#5b2bb7", top: "#b392ff" },
+    orange: { fill: "#f68b28", edge: "#ad5513", top: "#ffb35d" },
+    teal:   { fill: "#20c6c3", edge: "#0d8384", top: "#6de8e3" },
+    brown:  { fill: "#a76635", edge: "#6c3718", top: "#ca8a55" },
+    gray:   { fill: "#aab0bd", edge: "#626a77", top: "#d7dce6" },
+  };
+
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const deg = rad => rad * 180 / Math.PI;
+  const rad = deg => deg * Math.PI / 180;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const fmtTime = s => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+
+  function localFromWorld(plate, point) {
+    const a = -plate.angle;
+    const dx = point.x - plate.x;
+    const dy = point.y - plate.y;
+    return {
+      x: dx * Math.cos(a) - dy * Math.sin(a),
+      y: dx * Math.sin(a) + dy * Math.cos(a),
+    };
+  }
+
+  function worldFromLocal(plate, point) {
+    const a = plate.angle;
+    return {
+      x: plate.x + point.x * Math.cos(a) - point.y * Math.sin(a),
+      y: plate.y + point.x * Math.sin(a) + point.y * Math.cos(a),
+    };
+  }
+
+  function pointInPlate(plate, point) {
+    const p = localFromWorld(plate, point);
+    return Math.abs(p.x) <= plate.w / 2 && Math.abs(p.y) <= plate.h / 2;
+  }
+
+  function pointOverPlateHole(plate, point, tolerance = HOLE_R + 4) {
+    const p = localFromWorld(plate, point);
+    return plate.holes.some(h => Math.hypot(h.x - p.x, h.y - p.y) <= tolerance);
+  }
+
+  function pointNearPlatePinHole(plate, point) {
+    const p = localFromWorld(plate, point);
+    return plate.holes.some(h => Math.hypot(h.x - p.x, h.y - p.y) <= PIN_TOL);
+  }
+
+  function bar(levelHoles, id, aId, bId, color = "red", options = {}) {
+    const a = levelHoles[aId], b = levelHoles[bId];
+    if (!a || !b) throw new Error(`Missing bar holes ${aId}/${bId}`);
+    const c = mid(a, b);
+    const angle = Math.atan2(b.y - a.y, b.x - a.x);
+    const plate = {
+      id,
+      kind: "bar",
+      x: c.x,
+      y: c.y,
+      w: dist(a, b) + (options.extend ?? 64),
+      h: options.thickness ?? 58,
+      angle,
+      color: plateColors[color] || plateColors.red,
+      holes: [],
+      status: "active",
+      fallSpin: options.fallSpin ?? (Math.random() > .5 ? 18 : -18),
+      fallSide: options.fallSide ?? 0,
+    };
+    const holeIds = options.holeIds || [aId, bId];
+    plate.holes = holeIds.map(hid => localFromWorld(plate, levelHoles[hid]));
+    return plate;
+  }
+
+  function slab(levelHoles, id, centerId, w, h, angleDeg, color, holeIds, options = {}) {
+    const c = levelHoles[centerId];
+    const plate = {
+      id,
+      kind: "slab",
+      x: c.x,
+      y: c.y,
+      w,
+      h,
+      angle: rad(angleDeg),
+      color: plateColors[color] || plateColors.blue,
+      holes: [],
+      status: "active",
+      fallSpin: options.fallSpin ?? (Math.random() > .5 ? 16 : -16),
+      fallSide: options.fallSide ?? 0,
+    };
+    plate.holes = holeIds.map(hid => localFromWorld(plate, levelHoles[hid]));
+    return plate;
+  }
+
+  function makeLevel({ name, holeIds, plates, screws, moves, time, hints = 3 }) {
+    const holes = {};
+    holeIds.forEach(id => holes[id] = { ...GRID[id] });
+    const made = plates(holes);
+    return { name, holes: Object.values(holes), holeMap: holes, plates: made, screws, moves, time, hints };
+  }
+
+  const LEVELS = [
+    makeLevel({
+      name: "First Board",
+      holeIds: ["A1", "C1", "E1", "B3", "D3"],
+      plates: h => [bar(h, "basic-red", "B3", "D3", "red")],
+      screws: [{ id: "s1", holeId: "B3" }, { id: "s2", holeId: "D3" }],
+      moves: 3, time: 70
+    }),
+    makeLevel({
+      name: "The Cross",
+      holeIds: ["A1", "C1", "E1", "A3", "E3", "A5", "E5", "C4"],
+      plates: h => [
+        bar(h, "diag-a", "A3", "E5", "orange", { holeIds: ["A3", "E5"] }),
+        bar(h, "diag-b", "E3", "A5", "blue", { holeIds: ["E3", "A5"] })
+      ],
+      screws: [{ id: "s1", holeId: "A3" }, { id: "s2", holeId: "E5" }, { id: "s3", holeId: "E3" }, { id: "s4", holeId: "A5" }],
+      moves: 5, time: 90
+    }),
+    makeLevel({
+      name: "Locked Gate",
+      holeIds: ["A1", "C1", "E1", "A3", "E3", "B3", "D3", "B6", "D6"],
+      plates: h => [
+        bar(h, "top-lock", "A3", "E3", "yellow", { holeIds: ["A3", "E3"], extend: 70 }),
+        bar(h, "left-post", "B3", "B6", "green", { holeIds: ["B3", "B6"], extend: 62 }),
+        bar(h, "right-post", "D3", "D6", "blue", { holeIds: ["D3", "D6"], extend: 62 })
+      ],
+      screws: [{ id: "s1", holeId: "A3" }, { id: "s2", holeId: "E3" }, { id: "s3", holeId: "B6" }, { id: "s4", holeId: "D6" }],
+      moves: 6, time: 110
+    }),
+    makeLevel({
+      name: "Pinwheel",
+      holeIds: ["A1", "C1", "E1", "C2", "A4", "C4", "E4", "C6", "B3", "D5"],
+      plates: h => [
+        bar(h, "north", "C2", "C4", "purple", { holeIds: ["C2", "C4"] }),
+        bar(h, "west", "A4", "C4", "red", { holeIds: ["A4", "C4"] }),
+        bar(h, "east", "C4", "E4", "teal", { holeIds: ["C4", "E4"] }),
+        bar(h, "south", "C4", "C6", "orange", { holeIds: ["C4", "C6"] })
+      ],
+      screws: [{ id: "s1", holeId: "C2" }, { id: "s2", holeId: "A4" }, { id: "s3", holeId: "E4" }, { id: "s4", holeId: "C6" }, { id: "s5", holeId: "C4" }],
+      moves: 8, time: 125
+    }),
+    makeLevel({
+      name: "Staircase",
+      holeIds: ["A1", "C1", "E1", "A2", "B3", "C4", "D5", "E6", "A6", "E2"],
+      plates: h => [
+        bar(h, "step-1", "A2", "C4", "green", { holeIds: ["A2", "C4"] }),
+        bar(h, "step-2", "B3", "D5", "yellow", { holeIds: ["B3", "D5"] }),
+        bar(h, "step-3", "C4", "E6", "pink", { holeIds: ["C4", "E6"] }),
+        bar(h, "brace", "A6", "E2", "blue", { holeIds: ["A6", "E2"] })
+      ],
+      screws: [{ id: "s1", holeId: "A2" }, { id: "s2", holeId: "B3" }, { id: "s3", holeId: "C4" }, { id: "s4", holeId: "D5" }, { id: "s5", holeId: "E6" }, { id: "s6", holeId: "A6" }, { id: "s7", holeId: "E2" }],
+      moves: 11, time: 150
+    }),
+    makeLevel({
+      name: "Box Frame",
+      holeIds: ["A1", "C1", "E1", "A3", "C3", "E3", "A5", "C5", "E5", "B4", "D4"],
+      plates: h => [
+        bar(h, "top", "A3", "E3", "red", { holeIds: ["A3", "E3"], extend: 62 }),
+        bar(h, "bottom", "A5", "E5", "orange", { holeIds: ["A5", "E5"], extend: 62 }),
+        bar(h, "left", "A3", "A5", "green", { holeIds: ["A3", "A5"], extend: 58 }),
+        bar(h, "right", "E3", "E5", "blue", { holeIds: ["E3", "E5"], extend: 58 }),
+        bar(h, "middle", "C3", "C5", "purple", { holeIds: ["C3", "C5"], extend: 58 })
+      ],
+      screws: [{ id: "s1", holeId: "A3" }, { id: "s2", holeId: "E3" }, { id: "s3", holeId: "A5" }, { id: "s4", holeId: "E5" }, { id: "s5", holeId: "C3" }, { id: "s6", holeId: "C5" }],
+      moves: 10, time: 165
+    }),
+    makeLevel({
+      name: "Diamond Trap",
+      holeIds: ["A1", "B1", "D1", "E1", "C2", "A4", "C4", "E4", "C6", "B3", "D3", "B5", "D5"],
+      plates: h => [
+        bar(h, "diamond-nw", "C2", "A4", "yellow", { holeIds: ["C2", "A4"] }),
+        bar(h, "diamond-ne", "C2", "E4", "red", { holeIds: ["C2", "E4"] }),
+        bar(h, "diamond-sw", "A4", "C6", "blue", { holeIds: ["A4", "C6"] }),
+        bar(h, "diamond-se", "E4", "C6", "green", { holeIds: ["E4", "C6"] }),
+        bar(h, "crossbar", "B3", "D5", "pink", { holeIds: ["B3", "D5"] }),
+        bar(h, "crossbar2", "D3", "B5", "teal", { holeIds: ["D3", "B5"] })
+      ],
+      screws: [{ id: "s1", holeId: "C2" }, { id: "s2", holeId: "A4" }, { id: "s3", holeId: "E4" }, { id: "s4", holeId: "C6" }, { id: "s5", holeId: "B3" }, { id: "s6", holeId: "D5" }, { id: "s7", holeId: "D3" }, { id: "s8", holeId: "B5" }],
+      moves: 13, time: 190
+    }),
+    makeLevel({
+      name: "Sandwich",
+      holeIds: ["A1", "C1", "E1", "A2", "C2", "E2", "B4", "C4", "D4", "A6", "C6", "E6", "B3", "D5"],
+      plates: h => [
+        slab(h, "big-blue", "C4", 360, 72, 0, "blue", ["B4", "D4"], { fallSpin: 10 }),
+        bar(h, "top-red", "A2", "E2", "red", { holeIds: ["A2", "E2"], extend: 60 }),
+        bar(h, "bottom-green", "A6", "E6", "green", { holeIds: ["A6", "E6"], extend: 60 }),
+        bar(h, "diag-yellow", "B3", "D5", "yellow", { holeIds: ["B3", "D5"] })
+      ],
+      screws: [{ id: "s1", holeId: "B4" }, { id: "s2", holeId: "D4" }, { id: "s3", holeId: "A2" }, { id: "s4", holeId: "E2" }, { id: "s5", holeId: "A6" }, { id: "s6", holeId: "E6" }, { id: "s7", holeId: "B3" }, { id: "s8", holeId: "D5" }],
+      moves: 13, time: 200
+    }),
+    makeLevel({
+      name: "Woven Bars",
+      holeIds: ["A1", "B1", "D1", "E1", "A2", "C2", "E2", "A4", "C4", "E4", "A6", "C6", "E6", "B3", "D3", "B5", "D5"],
+      plates: h => [
+        bar(h, "left-vertical", "A2", "A6", "green", { holeIds: ["A2", "A6"], extend: 60 }),
+        bar(h, "mid-vertical", "C2", "C6", "blue", { holeIds: ["C2", "C6"], extend: 60 }),
+        bar(h, "right-vertical", "E2", "E6", "purple", { holeIds: ["E2", "E6"], extend: 60 }),
+        bar(h, "diag-one", "B3", "D5", "red", { holeIds: ["B3", "D5"] }),
+        bar(h, "diag-two", "D3", "B5", "orange", { holeIds: ["D3", "B5"] }),
+        bar(h, "middle", "A4", "E4", "yellow", { holeIds: ["A4", "E4"], extend: 70 })
+      ],
+      screws: [{ id: "s1", holeId: "A2" }, { id: "s2", holeId: "A6" }, { id: "s3", holeId: "C2" }, { id: "s4", holeId: "C6" }, { id: "s5", holeId: "E2" }, { id: "s6", holeId: "E6" }, { id: "s7", holeId: "B3" }, { id: "s8", holeId: "D5" }, { id: "s9", holeId: "D3" }, { id: "s10", holeId: "B5" }, { id: "s11", holeId: "A4" }, { id: "s12", holeId: "E4" }],
+      moves: 18, time: 230
+    }),
+    makeLevel({
+      name: "The Bridge",
+      holeIds: ["A1", "C1", "E1", "A2", "E2", "B3", "D3", "A4", "C4", "E4", "B5", "D5", "A6", "E6"],
+      plates: h => [
+        bar(h, "top-left", "A2", "B3", "red", { holeIds: ["A2", "B3"] }),
+        bar(h, "top-right", "E2", "D3", "blue", { holeIds: ["E2", "D3"] }),
+        bar(h, "bridge", "A4", "E4", "yellow", { holeIds: ["A4", "C4", "E4"], extend: 70 }),
+        bar(h, "low-left", "B5", "A6", "green", { holeIds: ["B5", "A6"] }),
+        bar(h, "low-right", "D5", "E6", "pink", { holeIds: ["D5", "E6"] }),
+        bar(h, "center-strut", "C4", "D5", "teal", { holeIds: ["C4", "D5"] })
+      ],
+      screws: [{ id: "s1", holeId: "A2" }, { id: "s2", holeId: "B3" }, { id: "s3", holeId: "E2" }, { id: "s4", holeId: "D3" }, { id: "s5", holeId: "A4" }, { id: "s6", holeId: "C4" }, { id: "s7", holeId: "E4" }, { id: "s8", holeId: "B5" }, { id: "s9", holeId: "A6" }, { id: "s10", holeId: "D5" }, { id: "s11", holeId: "E6" }],
+      moves: 17, time: 245
+    }),
+    makeLevel({
+      name: "Helix",
+      holeIds: ["A1", "B1", "D1", "E1", "B2", "D2", "A3", "C3", "E3", "B4", "D4", "A5", "C5", "E5", "B6", "D6"],
+      plates: h => [
+        bar(h, "h1", "B2", "D2", "orange", { holeIds: ["B2", "D2"] }),
+        bar(h, "d1", "D2", "A5", "blue", { holeIds: ["D2", "A5"] }),
+        bar(h, "h2", "A3", "E3", "green", { holeIds: ["A3", "C3", "E3"], extend: 70 }),
+        bar(h, "d2", "B4", "E5", "pink", { holeIds: ["B4", "E5"] }),
+        bar(h, "h3", "A5", "E5", "yellow", { holeIds: ["A5", "C5", "E5"], extend: 70 }),
+        bar(h, "d3", "B6", "D4", "purple", { holeIds: ["B6", "D4"] })
+      ],
+      screws: [{ id: "s1", holeId: "B2" }, { id: "s2", holeId: "D2" }, { id: "s3", holeId: "A3" }, { id: "s4", holeId: "C3" }, { id: "s5", holeId: "E3" }, { id: "s6", holeId: "B4" }, { id: "s7", holeId: "D4" }, { id: "s8", holeId: "A5" }, { id: "s9", holeId: "C5" }, { id: "s10", holeId: "E5" }, { id: "s11", holeId: "B6" }],
+      moves: 18, time: 260
+    }),
+    makeLevel({
+      name: "Master Board",
+      holeIds: ["A1", "B1", "C1", "D1", "E1", "A2", "C2", "E2", "A3", "B3", "D3", "E3", "A4", "C4", "E4", "A5", "B5", "D5", "E5", "A6", "C6", "E6"],
+      plates: h => [
+        bar(h, "top", "A2", "E2", "yellow", { holeIds: ["A2", "C2", "E2"], extend: 74 }),
+        bar(h, "left-tower", "A2", "A6", "green", { holeIds: ["A2", "A4", "A6"], extend: 66 }),
+        bar(h, "right-tower", "E2", "E6", "blue", { holeIds: ["E2", "E4", "E6"], extend: 66 }),
+        bar(h, "slash", "A3", "E5", "red", { holeIds: ["A3", "C4", "E5"], extend: 66 }),
+        bar(h, "backslash", "E3", "A5", "purple", { holeIds: ["E3", "C4", "A5"], extend: 66 }),
+        bar(h, "center", "C4", "C6", "orange", { holeIds: ["C4", "C6"], extend: 60 })
+      ],
+      screws: [{ id: "s1", holeId: "A2" }, { id: "s2", holeId: "C2" }, { id: "s3", holeId: "E2" }, { id: "s4", holeId: "A4" }, { id: "s5", holeId: "E4" }, { id: "s6", holeId: "A6" }, { id: "s7", holeId: "E6" }, { id: "s8", holeId: "A3" }, { id: "s9", holeId: "E5" }, { id: "s10", holeId: "E3" }, { id: "s11", holeId: "A5" }, { id: "s12", holeId: "C4" }, { id: "s13", holeId: "C6" }],
+      moves: 20, time: 310
+    })
+  ];
+
+  const state = {
+    levelIndex: 0,
+    holes: [],
+    plates: [],
+    screws: [],
+    movesLeft: 0,
+    timeLeft: 0,
+    hintsLeft: 0,
+    selected: null,
+    validTargets: new Set(),
+    invalidTargets: new Set(),
+    hint: null,
+    undo: [],
+    timerId: null,
+    animating: false,
+    completed: false,
+    lost: false,
+    startedAt: 0,
+    starsAwarded: 0
+  };
+
+  function cloneLevelData(level) {
+    return {
+      holes: level.holes.map(h => ({ ...h })),
+      plates: level.plates.map(p => ({ ...p, color: { ...p.color }, holes: p.holes.map(h => ({ ...h })) })),
+      screws: level.screws.map(s => ({ ...s }))
+    };
+  }
+
+  function loadLevel(index) {
+    const level = LEVELS[index];
+    const data = cloneLevelData(level);
+    clearInterval(state.timerId);
+    state.levelIndex = index;
+    state.holes = data.holes;
+    state.plates = data.plates;
+    state.screws = data.screws;
+    state.movesLeft = level.moves;
+    state.timeLeft = level.time;
+    state.hintsLeft = level.hints ?? 3;
+    state.selected = null;
+    state.validTargets = new Set();
+    state.invalidTargets = new Set();
+    state.hint = null;
+    state.undo = [];
+    state.animating = false;
+    state.completed = false;
+    state.lost = false;
+    state.startedAt = Date.now();
+    state.starsAwarded = 0;
+    overlay.classList.remove("show");
+    updatePins();
+    render();
+    startTimer();
+  }
+
+  function startTimer() {
+    state.timerId = setInterval(() => {
+      if (state.animating || state.completed || state.lost) return;
+      state.timeLeft -= 1;
+      updateHud();
+      if (state.timeLeft <= 0) lose("Time's up!");
+    }, 1000);
+  }
+
+  function holeById(id) { return state.holes.find(h => h.id === id); }
+  function screwById(id) { return state.screws.find(s => s.id === id); }
+  function occupiedHoleIds(exceptScrewId = null) {
+    return new Set(state.screws.filter(s => s.id !== exceptScrewId).map(s => s.holeId));
+  }
+  function activePlates() { return state.plates.filter(p => p.status === "active"); }
+  function livePlates() { return state.plates.filter(p => p.status !== "removed"); }
+
+  function isHoleBlocked(hole) {
+    for (const p of activePlates()) {
+      if (pointInPlate(p, hole) && !pointOverPlateHole(p, hole)) return true;
+    }
+    return false;
+  }
+
+  function targetStatus(holeId, movingScrewId) {
+    const hole = holeById(holeId);
+    if (!hole) return "missing";
+    if (occupiedHoleIds(movingScrewId).has(holeId)) return "occupied";
+    if (isHoleBlocked(hole)) return "blocked";
+    return "valid";
+  }
+
+  function computeTargets(screwId) {
+    const valid = new Set();
+    const invalid = new Set();
+    for (const hole of state.holes) {
+      const status = targetStatus(hole.id, screwId);
+      if (status === "valid" && screwById(screwId)?.holeId !== hole.id) valid.add(hole.id);
+      else if (status !== "occupied") invalid.add(hole.id);
+    }
+    return { valid, invalid };
+  }
+
+  function updatePins() {
+    for (const p of state.plates) p.pinnedBy = [];
+    for (const p of activePlates()) {
+      for (const s of state.screws) {
+        const h = holeById(s.holeId);
+        if (h && pointNearPlatePinHole(p, h)) p.pinnedBy.push(s.id);
+      }
+    }
+  }
+
+  function saveUndo() {
+    state.undo.push({
+      screws: state.screws.map(s => ({ ...s })),
+      plates: state.plates.map(p => ({ id: p.id, status: p.status, pinnedBy: [...(p.pinnedBy || [])] })),
+      movesLeft: state.movesLeft,
+      timeLeft: state.timeLeft,
+      hintsLeft: state.hintsLeft
+    });
+    if (state.undo.length > 10) state.undo.shift();
+  }
+
+  function restoreUndo() {
+    if (!state.undo.length || state.animating || state.completed || state.lost) return;
+    const snap = state.undo.pop();
+    state.screws = snap.screws.map(s => ({ ...s }));
+    for (const p of state.plates) {
+      const saved = snap.plates.find(x => x.id === p.id);
+      if (saved) {
+        p.status = saved.status === "falling" ? "active" : saved.status;
+        p.pinnedBy = [...saved.pinnedBy];
+      }
+    }
+    state.movesLeft = snap.movesLeft;
+    state.timeLeft = snap.timeLeft;
+    state.hintsLeft = snap.hintsLeft;
+    state.selected = null;
+    state.validTargets.clear();
+    state.invalidTargets.clear();
+    state.hint = null;
+    updatePins();
+    render();
+    showToast("Undo");
+    AudioKit.click();
+  }
+
+  function selectScrew(id) {
+    if (state.animating || state.completed || state.lost) return;
+    AudioKit.click();
+    if (state.selected === id) {
+      clearSelection();
+      render();
+      return;
+    }
+    state.selected = id;
+    const targets = computeTargets(id);
+    state.validTargets = targets.valid;
+    state.invalidTargets = targets.invalid;
+    state.hint = null;
+    render();
+  }
+
+  function clearSelection() {
+    state.selected = null;
+    state.validTargets = new Set();
+    state.invalidTargets = new Set();
+    state.hint = null;
+  }
+
+  function tapHole(holeId) {
+    if (state.animating || state.completed || state.lost) return;
+    if (!state.selected) {
+      const occupied = state.screws.find(s => s.holeId === holeId);
+      if (occupied) selectScrew(occupied.id);
+      else showToast("Tap a screw first");
+      return;
+    }
+    const status = targetStatus(holeId, state.selected);
+    if (status !== "valid") {
+      AudioKit.bad();
+      if (status === "occupied") showToast("That hole already has a screw");
+      else if (status === "blocked") showToast("A plate blocks that hole");
+      else showToast("Can't move there");
+      shake();
+      return;
+    }
+    if (screwById(state.selected).holeId === holeId) return;
+    moveSelectedScrew(holeId);
+  }
+
+  function moveSelectedScrew(targetHoleId) {
+    const screw = screwById(state.selected);
+    if (!screw) return;
+    const fromHole = holeById(screw.holeId);
+    const toHole = holeById(targetHoleId);
+    if (!fromHole || !toHole) return;
+
+    saveUndo();
+    state.animating = true;
+    const screwId = screw.id;
+    clearSelection();
+    render();
+    animateScrew(fromHole, toHole, () => {
+      const current = screwById(screwId);
+      if (!current) return;
+      current.holeId = targetHoleId;
+      state.movesLeft -= 1;
+      updatePins();
+      AudioKit.place();
+      const released = releaseUnpinnedPlates();
+      render();
+      if (released.length) {
+        AudioKit.drop();
+        setTimeout(() => finishFalling(released), FALL_MS);
+      } else {
+        state.animating = false;
+        maybeLoseByMoves();
+        render();
+      }
+    }, screwId);
+  }
+
+  function releaseUnpinnedPlates() {
+    const released = [];
+    for (const p of activePlates()) {
+      if (!p.pinnedBy || p.pinnedBy.length === 0) {
+        p.status = "falling";
+        p.fallX = (p.fallSide || (p.x < W / 2 ? -1 : 1)) * (45 + Math.random() * 28);
+        p.fallY = 540 + Math.random() * 170;
+        released.push(p.id);
+      }
+    }
+    return released;
+  }
+
+  function finishFalling(ids) {
+    for (const id of ids) {
+      const p = state.plates.find(p => p.id === id);
+      if (p && p.status === "falling") p.status = "removed";
+    }
+    updatePins();
+    state.animating = false;
+    render();
+    checkWin();
+    if (!state.completed) maybeLoseByMoves();
+  }
+
+  function maybeLoseByMoves() {
+    if (!state.completed && !state.lost && state.movesLeft <= 0 && activePlates().length > 0) {
+      lose("No moves left!");
+    }
+  }
+
+  function checkWin() {
+    if (state.completed || state.lost) return;
+    if (activePlates().length === 0 && !state.plates.some(p => p.status === "falling")) {
+      state.completed = true;
+      clearInterval(state.timerId);
+      const level = LEVELS[state.levelIndex];
+      const moveRatio = clamp(state.movesLeft / Math.max(1, level.moves), 0, 1);
+      const timeRatio = clamp(state.timeLeft / Math.max(1, level.time), 0, 1);
+      const stars = 1 + (moveRatio > .22 ? 1 : 0) + (timeRatio > .28 ? 1 : 0);
+      state.starsAwarded = stars;
+      const nextUnlock = Math.max(store.bestLevel, state.levelIndex + 1);
+      store.bestLevel = Math.min(nextUnlock, LEVELS.length - 1);
+      store.totalStars = Math.max(store.totalStars, Number(localStorage.getItem(`unscrew_level_${state.levelIndex}_stars`) || 0) + stars);
+      localStorage.setItem(`unscrew_level_${state.levelIndex}_stars`, String(Math.max(stars, Number(localStorage.getItem(`unscrew_level_${state.levelIndex}_stars`) || 0))));
+      AudioKit.win();
+      confettiBurst();
+      setTimeout(() => showWin(stars), 500);
+    }
+  }
+
+  function lose(reason) {
+    state.lost = true;
+    clearInterval(state.timerId);
+    AudioKit.bad();
+    shake();
+    showOverlay(`
+      <h1>Try Again</h1>
+      <p>${reason}</p>
+      <p>Plan ahead: every moved screw must go into a visible free hole.</p>
+      <div class="card-actions single">
+        <button class="primary-btn" data-action="restart">Restart Level</button>
+      </div>
+    `);
+  }
+
+  function showWin(stars) {
+    const final = state.levelIndex === LEVELS.length - 1;
+    showOverlay(`
+      <h1>${final ? "Game Clear!" : "Level Clear!"}</h1>
+      <div class="stars">${"★".repeat(stars)}${"☆".repeat(3 - stars)}</div>
+      <p>${LEVELS[state.levelIndex].name}</p>
+      <p>Moves left: <b>${state.movesLeft}</b> · Time left: <b>${fmtTime(state.timeLeft)}</b></p>
+      <div class="card-actions ${final ? "single" : ""}">
+        <button class="secondary-btn" data-action="restart">Replay</button>
+        ${final ? "" : `<button class="primary-btn" data-action="next">Next Level</button>`}
+      </div>
+    `);
+  }
+
+  function showLevels() {
+    const best = store.bestLevel;
+    const rows = LEVELS.map((lvl, i) => {
+      const unlocked = i <= best || i === 0;
+      const stars = Number(localStorage.getItem(`unscrew_level_${i}_stars`) || 0);
+      return `<button class="level-btn ${unlocked ? "" : "locked"}" data-action="level" data-level="${i}" ${unlocked ? "" : "disabled"}>
+        <span>${i + 1}</span><span class="tool-count">${unlocked ? (stars ? "★".repeat(stars) : lvl.name) : "Locked"}</span>
+      </button>`;
+    }).join("");
+    showOverlay(`
+      <h1>Levels</h1>
+      <p>Clear boards to unlock the campaign.</p>
+      <div class="level-select">${rows}</div>
+      <div class="card-actions single">
+        <button class="secondary-btn" data-action="close">Close</button>
+      </div>
+    `);
+  }
+
+  function showOverlay(html) {
+    overlayCard.innerHTML = html;
+    overlay.classList.add("show");
+  }
+
+  overlay.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const action = btn.dataset.action;
+    if (action === "restart") loadLevel(state.levelIndex);
+    if (action === "next") loadLevel(Math.min(state.levelIndex + 1, LEVELS.length - 1));
+    if (action === "close") overlay.classList.remove("show");
+    if (action === "level") loadLevel(Number(btn.dataset.level));
+  });
+
+  function requestHint() {
+    if (state.animating || state.completed || state.lost) return;
+    if (state.hintsLeft <= 0) {
+      showToast("No hints left");
+      AudioKit.bad();
+      return;
+    }
+    const hint = findHintMove();
+    if (!hint) {
+      showToast("No safe move found — restart or undo");
+      AudioKit.bad();
+      return;
+    }
+    state.hintsLeft -= 1;
+    state.hint = hint;
+    state.selected = hint.screwId;
+    const targets = computeTargets(hint.screwId);
+    state.validTargets = targets.valid;
+    state.invalidTargets = targets.invalid;
+    showToast("Try this screw and target hole");
+    render();
+  }
+
+  function findHintMove() {
+    updatePins();
+    let best = null;
+    for (const s of state.screws) {
+      const from = holeById(s.holeId);
+      if (!from) continue;
+      const targets = computeTargets(s.id).valid;
+      for (const targetId of targets) {
+        const snapshot = state.screws.map(x => ({ ...x }));
+        const tmp = snapshot.find(x => x.id === s.id);
+        tmp.holeId = targetId;
+        const wouldRelease = state.plates.filter(p => p.status === "active" && p.pinnedBy && p.pinnedBy.includes(s.id)).filter(p => {
+          let count = 0;
+          for (const ts of snapshot) {
+            const h = holeById(ts.holeId);
+            if (h && pointNearPlatePinHole(p, h)) count++;
+          }
+          return count === 0;
+        }).length;
+        const score = wouldRelease * 10 - (pointNearAnyActivePlateHole(targetId) ? 2 : 0);
+        if (!best || score > best.score) best = { screwId: s.id, targetId, score };
+      }
+    }
+    if (best && best.score >= 0) return best;
+    return best;
+  }
+
+  function pointNearAnyActivePlateHole(holeId) {
+    const h = holeById(holeId);
+    if (!h) return false;
+    return activePlates().some(p => pointNearPlatePinHole(p, h));
+  }
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.remove("show");
+    void toast.offsetWidth;
+    toast.classList.add("show");
+  }
+
+  function shake() {
+    stage.classList.remove("shake");
+    void stage.offsetWidth;
+    stage.classList.add("shake");
+  }
+
+  function updateHud() {
+    timeText.textContent = fmtTime(Math.max(0, state.timeLeft));
+    movesText.textContent = String(Math.max(0, state.movesLeft));
+    levelText.textContent = `Level ${state.levelIndex + 1}`;
+    undoCount.textContent = String(state.undo.length);
+    hintCount.textContent = String(state.hintsLeft);
+    progressText.textContent = `${state.levelIndex + 1}/${LEVELS.length}`;
+    buttons.undo.disabled = state.undo.length === 0 || state.animating || state.completed || state.lost;
+    buttons.hint.disabled = state.hintsLeft <= 0 || state.animating || state.completed || state.lost;
+  }
+
+  function el(name, attrs = {}, children = []) {
+    const node = document.createElementNS(NS, name);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === undefined || v === null) continue;
+      if (k === "className") node.setAttribute("class", v);
+      else if (k === "dataset") Object.entries(v).forEach(([dk, dv]) => node.dataset[dk] = dv);
+      else node.setAttribute(k, String(v));
+    }
+    for (const child of Array.isArray(children) ? children : [children]) {
+      if (child) node.appendChild(child);
+    }
+    return node;
+  }
+
+  function render() {
+    updateHud();
+    svg.innerHTML = "";
+    svg.appendChild(defs());
+    svg.appendChild(backgroundLayer());
+    svg.appendChild(holesLayer());
+    svg.appendChild(platesLayer());
+    svg.appendChild(screwsLayer());
+    svg.appendChild(effectsLayer());
+  }
+
+  function defs() {
+    const d = el("defs");
+    d.innerHTML = `
+      <linearGradient id="skySoft" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#bfe8ff"/><stop offset=".48" stop-color="#f8e7b9"/><stop offset="1" stop-color="#f1bd7c"/>
+      </linearGradient>
+      <linearGradient id="boardGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#ffd778"/><stop offset=".55" stop-color="#e9aa4f"/><stop offset="1" stop-color="#d8913d"/>
+      </linearGradient>
+      <pattern id="wood" width="118" height="118" patternUnits="userSpaceOnUse">
+        <rect width="118" height="118" fill="url(#boardGrad)"/>
+        <path d="M3 18 C35 0 76 40 118 17 M-8 52 C33 74 66 25 124 56 M-4 89 C38 68 68 117 122 87" fill="none" stroke="#9e5d23" stroke-width="3" opacity=".22"/>
+        <path d="M25 0 C35 48 28 84 20 118 M72 0 C82 40 78 72 70 118" fill="none" stroke="#fff4bd" stroke-width="2" opacity=".18"/>
+      </pattern>
+      <radialGradient id="holeGrad" cx="45%" cy="37%" r="65%">
+        <stop offset="0" stop-color="#202020"/><stop offset=".55" stop-color="#0a0a0a"/><stop offset="1" stop-color="#5a321c"/>
+      </radialGradient>
+      <radialGradient id="screwGrad" cx="35%" cy="25%" r="72%">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".25" stop-color="#e8edf1"/><stop offset=".62" stop-color="#9da8b2"/><stop offset="1" stop-color="#57616d"/>
+      </radialGradient>
+      <radialGradient id="goldGrad" cx="35%" cy="25%" r="72%">
+        <stop offset="0" stop-color="#fff9c5"/><stop offset=".35" stop-color="#ffd54b"/><stop offset="1" stop-color="#a86612"/>
+      </radialGradient>
+      <filter id="plateShadow" x="-35%" y="-35%" width="170%" height="170%">
+        <feDropShadow dx="0" dy="8" stdDeviation="5" flood-color="#4f2307" flood-opacity=".32"/>
+      </filter>
+      <filter id="screwShadow" x="-60%" y="-60%" width="220%" height="220%">
+        <feDropShadow dx="0" dy="3" stdDeviation="2.4" flood-color="#2b1609" flood-opacity=".42"/>
+      </filter>
+      <filter id="glow" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur stdDeviation="4" result="blur"/>
+        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>`;
+    return d;
+  }
+
+  function backgroundLayer() {
+    const g = el("g");
+    g.appendChild(el("rect", { x: 0, y: 0, width: W, height: H, fill: "url(#skySoft)" }));
+    g.appendChild(el("rect", { x: BOARD.x - 8, y: BOARD.y - 8, width: BOARD.w + 16, height: BOARD.h + 16, rx: BOARD.r + 10, fill: "#94521f", opacity: .35 }));
+    g.appendChild(el("rect", { x: BOARD.x, y: BOARD.y, width: BOARD.w, height: BOARD.h, rx: BOARD.r, fill: "url(#wood)", stroke: "#8b4a1a", "stroke-width": 6 }));
+    g.appendChild(el("rect", { x: BOARD.x + 16, y: BOARD.y + 14, width: BOARD.w - 32, height: BOARD.h - 28, rx: BOARD.r - 7, fill: "none", stroke: "#fff1af", "stroke-width": 2, opacity: .32 }));
+
+    const title = el("text", { x: W / 2, y: BOARD.y + 40, "text-anchor": "middle", fill: "#80410e", "font-size": 20, "font-weight": 1000, opacity: .48 });
+    title.textContent = LEVELS[state.levelIndex].name;
+    g.appendChild(title);
+    return g;
+  }
+
+  function holesLayer() {
+    const g = el("g", { id: "holes" });
+    const occupied = occupiedHoleIds();
+    for (const h of state.holes) {
+      const blocked = isHoleBlocked(h);
+      const selected = state.selected;
+      const valid = selected && state.validTargets.has(h.id);
+      const invalid = selected && state.invalidTargets.has(h.id) && !occupied.has(h.id);
+      const hint = state.hint?.targetId === h.id;
+      const group = el("g", {
+        className: `svg-button ${valid ? "valid-target" : ""} ${invalid ? "invalid-target" : ""} ${hint ? "hint-pulse" : ""}`,
+        transform: `translate(${h.x},${h.y})`,
+        dataset: { hole: h.id }
+      });
+      group.addEventListener("pointerdown", e => { e.stopPropagation(); tapHole(h.id); });
+      group.appendChild(el("circle", { r: HOLE_R + 6, fill: valid ? "#67ec75" : invalid ? "#f25b48" : "#6e3919", opacity: valid ? .55 : invalid ? .24 : .24 }));
+      group.appendChild(el("circle", { r: HOLE_R, fill: "url(#holeGrad)", stroke: "#fff0b2", "stroke-width": 3, opacity: blocked && !valid ? .28 : 1 }));
+      group.appendChild(el("circle", { r: HOLE_R - 5, fill: "#000", opacity: .42 }));
+      group.appendChild(el("circle", { r: HOLE_R + 14, fill: "transparent", className: "screw-hit" }));
+      g.appendChild(group);
+    }
+    return g;
+  }
+
+  function platesLayer() {
+    const g = el("g", { id: "plates" });
+    for (const p of livePlates()) {
+      const group = drawPlate(p);
+      g.appendChild(group);
+    }
+    return g;
+  }
+
+  function drawPlate(p) {
+    const falling = p.status === "falling";
+    const transform = `translate(${p.x},${p.y}) rotate(${deg(p.angle)})`;
+    const group = el("g", {
+      className: `plate ${falling ? "falling-plate" : ""}`,
+      transform,
+      opacity: 1
+    });
+    if (falling) {
+      group.appendChild(el("animateTransform", { attributeName: "transform", type: "translate", additive: "sum", from: "0 0", to: `${p.fallX || 0} ${p.fallY || 620}`, dur: `${FALL_MS}ms`, fill: "freeze", calcMode: "spline", keySplines: ".12 .78 .28 1" }));
+      group.appendChild(el("animateTransform", { attributeName: "transform", type: "rotate", additive: "sum", from: "0", to: `${p.fallSpin || 20}`, dur: `${FALL_MS}ms`, fill: "freeze", calcMode: "spline", keySplines: ".12 .78 .28 1" }));
+      group.appendChild(el("animate", { attributeName: "opacity", from: "1", to: ".15", dur: `${FALL_MS}ms`, fill: "freeze" }));
+    }
+
+    group.appendChild(el("rect", { x: -p.w/2, y: -p.h/2, width: p.w, height: p.h, rx: 19, fill: p.color.edge }));
+    group.appendChild(el("rect", { x: -p.w/2 + 4, y: -p.h/2 + 4, width: p.w - 8, height: p.h - 8, rx: 15, fill: p.color.fill }));
+    group.appendChild(el("path", { d: `M${-p.w/2+18},${-p.h/2+10} H${p.w/2-18}`, stroke: p.color.top, "stroke-width": 6, "stroke-linecap": "round", opacity: .62 }));
+    group.appendChild(el("path", { d: `M${-p.w/2+18},${p.h/2-11} H${p.w/2-18}`, stroke: "#57200b", "stroke-width": 3, "stroke-linecap": "round", opacity: .18 }));
+
+    for (const h of p.holes) {
+      group.appendChild(el("circle", { cx: h.x, cy: h.y, r: HOLE_R + 5, fill: "#6f3014", opacity: .55 }));
+      group.appendChild(el("circle", { cx: h.x, cy: h.y, r: HOLE_R, fill: "url(#holeGrad)", stroke: "#fff0b2", "stroke-width": 3 }));
+      group.appendChild(el("circle", { cx: h.x - 4, cy: h.y - 5, r: 4, fill: "#fff", opacity: .24 }));
+    }
+
+    return group;
+  }
+
+  function screwsLayer() {
+    const g = el("g", { id: "screws" });
+    for (const s of state.screws) {
+      const h = holeById(s.holeId);
+      if (!h) continue;
+      const isSel = state.selected === s.id;
+      const hint = state.hint?.screwId === s.id;
+      const group = drawScrew(s.id, h.x, h.y, { selected: isSel, hint });
+      group.addEventListener("pointerdown", e => { e.stopPropagation(); selectScrew(s.id); });
+      g.appendChild(group);
+    }
+    return g;
+  }
+
+  function drawScrew(id, x, y, flags = {}) {
+    const group = el("g", {
+      transform: `translate(${x},${y})`,
+      className: `svg-button screw-visible ${flags.hint ? "hint-pulse" : ""}`,
+      dataset: { screw: id }
+    });
+    if (flags.selected) {
+      group.appendChild(el("circle", { r: SCREW_R + 16, fill: "#fff36c", opacity: .55, filter: "url(#glow)" }));
+      group.appendChild(el("circle", { r: SCREW_R + 8, fill: "none", stroke: "#fff", "stroke-width": 4, opacity: .85 }));
+    }
+    group.appendChild(el("circle", { r: SCREW_R + 3, fill: "#6d6d6d" }));
+    group.appendChild(el("circle", { r: SCREW_R, fill: "url(#screwGrad)", stroke: "#47515b", "stroke-width": 2 }));
+    group.appendChild(el("circle", { r: SCREW_R - 5, fill: "none", stroke: "#f8fbff", "stroke-width": 2, opacity: .42 }));
+    group.appendChild(el("path", { d: `M${-SCREW_R+7} 0 H${SCREW_R-7} M0 ${-SCREW_R+7} V${SCREW_R-7}`, stroke: "#414b55", "stroke-width": 5, "stroke-linecap": "round" }));
+    group.appendChild(el("path", { d: `M${-SCREW_R+8} -1 H${SCREW_R-8} M1 ${-SCREW_R+8} V${SCREW_R-8}`, stroke: "#ffffff", "stroke-width": 1.6, "stroke-linecap": "round", opacity: .52 }));
+    group.appendChild(el("circle", { r: SCREW_R + 18, fill: "transparent", className: "screw-hit" }));
+    return group;
+  }
+
+  function effectsLayer() {
+    return el("g", { id: "effects" });
+  }
+
+  function animateScrew(from, to, done, screwId) {
+    const effects = svg.querySelector("#effects") || svg.appendChild(effectsLayer());
+    const ghost = drawScrew(screwId + "-ghost", from.x, from.y, { selected: true });
+    effects.appendChild(ghost);
+    const start = performance.now();
+    const arc = -46 - Math.random() * 22;
+    const step = now => {
+      const t = clamp((now - start) / MOVE_MS, 0, 1);
+      const ease = 1 - Math.pow(1 - t, 3);
+      const x = from.x + (to.x - from.x) * ease;
+      const y = from.y + (to.y - from.y) * ease + Math.sin(Math.PI * ease) * arc;
+      const r = 540 * ease;
+      ghost.setAttribute("transform", `translate(${x},${y}) rotate(${r})`);
+      if (t < 1) requestAnimationFrame(step);
+      else {
+        ghost.remove();
+        done();
+      }
+    };
+    requestAnimationFrame(step);
+  }
+
+  function confettiBurst() {
+    const effects = svg.querySelector("#effects") || svg.appendChild(effectsLayer());
+    const colors = ["#ff5252", "#ffd740", "#40c4ff", "#69f0ae", "#e040fb", "#ffab40"];
+    for (let i = 0; i < 60; i++) {
+      const c = el("circle", { cx: W/2, cy: BOARD.y + 70, r: 4 + Math.random() * 4, fill: colors[i % colors.length], opacity: .95 });
+      effects.appendChild(c);
+      const ang = Math.random() * Math.PI * 2;
+      const speed = 80 + Math.random() * 240;
+      const dx = Math.cos(ang) * speed;
+      const dy = Math.sin(ang) * speed + 150;
+      c.animate([
+        { transform: `translate(0px,0px)`, opacity: 1 },
+        { transform: `translate(${dx}px,${dy}px) rotate(${Math.random()*720}deg)`, opacity: 0 }
+      ], { duration: 900 + Math.random()*500, easing: "cubic-bezier(.16,.72,.32,1)" }).onfinish = () => c.remove();
+    }
+  }
+
+  buttons.undo.addEventListener("click", restoreUndo);
+  buttons.hint.addEventListener("click", requestHint);
+  buttons.restart.addEventListener("click", () => loadLevel(state.levelIndex));
+  buttons.levels.addEventListener("click", showLevels);
+
+  svg.addEventListener("pointerdown", () => {
+    if (state.selected && !state.animating) {
+      clearSelection();
+      render();
+    }
+  });
+
+  window.addEventListener("keydown", e => {
+    if (e.key.toLowerCase() === "r") loadLevel(state.levelIndex);
+    if (e.key.toLowerCase() === "h") requestHint();
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") restoreUndo();
+    if (e.key === "Escape") { clearSelection(); overlay.classList.remove("show"); render(); }
+  });
+
+  // Start with the latest unlocked level only if the player already cleared something.
+  loadLevel(0);
+})();
+</script>
+</body>
+</html>
