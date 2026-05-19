@@ -89,15 +89,35 @@ npm run typecheck
 
 ## Game design highlights
 
+**Core loop**
 - **Bucket-color mechanic** — tap a screw → it flies into a colour-matching slot. 3-in-a-row clears the slot and triggers a coin burst.
 - **Combo system** — consecutive pops within 1.3 s build a multiplier; each pop pitches up the SFX (rising arpeggio).
 - **Star rating** — 1 star for completion, 2 for clearing under par time, 3 for ≤ 75 % of par.
-- **Currency** — coins from per-pop + slot-clear bonuses + time-remaining bonus + daily login.
-- **XP / Rank** — visible rank meter ticks up over levels; pure progress meta.
-- **Daily login streak** — 7-day cycle, escalating to a 500-coin jackpot, **resets on a missed day** (loss-aversion hook).
+- **Auto-advance** — `level clear → 0.6 s celebration → next level` with zero taps.
+
+**Variety per chapter**
+- Chapters 2–4 introduce new screw types one at a time: **frozen** (two taps), **chained** (pop together), and **locked + key** (key unlocks matching locks). Each appearance shows a brief intro card the first time.
+- **6 themes** rotate every two chapters (Workshop → Toy Box → Candy Lab → Deep Blue → Space Lab → Neon City). Theme swap is a CSS-property update — instant and smooth.
+
+**Content**
+- **200 procedurally generated levels** — 10 chapters × 20 levels, deterministic by seed, solver-verified.
+
+**Economy**
+- **Coins** from per-pop + slot-clear bonuses + time-remaining bonus + daily login + quests + achievements.
+- **XP / Rank** — visible meter ticks up over levels; rank-up rewards.
+- **4 Boosters** — Extra Time (+30 s), Color Sort, Reveal Hint, Undo. Buyable with coins or rewarded ads.
+- **In-game booster bar** with one-tap usage during play.
+
+**Retention systems**
+- **7-day daily login streak** — escalating to a 500-coin jackpot, **resets on a missed day** (loss-aversion hook).
+- **3 daily quests** — refresh at midnight UTC, claim coins + boosters when complete.
+- **24 achievements** — passive milestone tracking with toast notifications + coin/booster rewards.
+- **Welcome back bonus** — coins + booster if absent ≥ 12 h.
 - **Near-miss continue** — failed with ≥ 60 % progress? "Watch ad for +30 s" offer keeps the session alive.
-- **Procedural levels** — 10 chapters × 20 levels, generated from a deterministic seed, solver-verified.
-- **Auto-advance** — `level clear → 0.6 s celebration → next level` with zero taps. The "one more level" loop is the default.
+
+**Onboarding**
+- 3-step tutorial on first launch (skippable after first run).
+- Per-screw-type intro card on debut.
 
 ## Debug mode
 
@@ -144,14 +164,13 @@ Upload `unscrewit.zip`. The bundle is fully self-contained, fetches the CrazyGam
 
 ## Roadmap
 
-Future passes:
+Possible future passes:
 
-1. **Themes (6 palettes)** — colour-pop progression hook
-2. **Daily quests** + **weekly tournament** (personal-best ladder with AI ghosts)
-3. **Achievements (30+)**
-4. **Special screw types** — frozen, chained, key, rusted, magnetic, bomb
-5. **Onboarding** — guided first session with finger-pointer hints
-6. **Localization (i18n scaffolding)** — strings table, `t()` function
+- **Weekly tournament** — personal-best ladder with AI ghosts
+- **Additional screw types** — rusted, magnetic, bomb
+- **Localization (i18n)** — strings table, `t()` function (currently English-only)
+- **More themes** unlockable via achievements
+- **Endless mode** — procedural ladder past chapter 10
 
 ## License
 

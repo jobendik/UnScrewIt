@@ -9,24 +9,11 @@ import type { ScrewColorId } from './colors';
 
 export type PlateKind = 'bar' | 'slab';
 
-/** A point on a plate's local (rotated) coordinate system. */
-export interface LocalPoint {
-  x: number;
-  y: number;
-}
+export interface LocalPoint { x: number; y: number; }
+export interface WorldPoint { x: number; y: number; }
 
-/** A point in world (board) coordinates. */
-export interface WorldPoint {
-  x: number;
-  y: number;
-}
+export interface Hole extends WorldPoint { id: string; }
 
-/** A named hole position on the board (`A1`, `B3`, etc.). */
-export interface Hole extends WorldPoint {
-  id: string;
-}
-
-/** Color palette entry for a plate. */
 export interface PlateColor {
   fill: string;
   edge: string;
@@ -35,7 +22,6 @@ export interface PlateColor {
 
 export type PlateStatus = 'active' | 'falling' | 'removed';
 
-/** A physical plate that screws hold down. */
 export interface Plate {
   id: string;
   kind: PlateKind;
@@ -46,58 +32,67 @@ export interface Plate {
   /** Rotation in radians. */
   angle: number;
   color: PlateColor;
-  /** Holes through which screws can pin this plate (in local coords). */
   holes: LocalPoint[];
   status: PlateStatus;
-  /** Screw IDs currently pinning this plate (recomputed each move). */
   pinnedBy: string[];
-  /** Visual variance for fall animation. */
   fallSpin: number;
   fallSide: number;
-  /** Targets for the fall animation, populated when status becomes `falling`. */
   fallX?: number;
   fallY?: number;
 }
 
-/** Future-facing — extended in later passes with frozen/chained/etc. */
-export type ScrewType = 'standard';
+/**
+ * Special screw types introduced gradually across chapters:
+ *
+ * - standard: regular screw, removed in one tap.
+ * - frozen:   covered in ice; first tap cracks it, second removes it.
+ * - chained:  linked to other chained screws sharing the same `chainId`.
+ *             Tapping any one tries to remove the whole chain atomically.
+ * - locked:   wrapped in a padlock; can't be tapped until any key with the
+ *             same `lockGroup` has been removed.
+ * - key:      golden screw; removing it unlocks all `locked` screws sharing
+ *             the same `lockGroup`.
+ */
+export type ScrewType = 'standard' | 'frozen' | 'chained' | 'locked' | 'key';
 
 export interface Screw {
   id: string;
-  /** Hole id this screw currently occupies. */
   holeId: string;
   color: ScrewColorId;
   type: ScrewType;
+  /** 1 = cracked, 2 = solid ice; absent on non-frozen screws. */
+  frozenHits?: number;
+  /** Chain group id — all screws sharing this id pop together. */
+  chainId?: string;
+  /** Lock group id — locked screws hidden until a key of the same group pops. */
+  lockGroup?: string;
 }
 
-/** A single bucket slot at the bottom of the board. */
 export interface BucketSlot {
-  /** Color currently claimed by this slot, or null if empty. */
   color: ScrewColorId | null;
-  /** Number of screws of `color` placed (0..3). */
   count: number;
 }
 
-/** Reason a screw cannot be popped right now. */
-export type RemoveBlocker = 'plate-covers' | 'bucket-full' | 'animating' | 'finished';
+export type RemoveBlocker =
+  | 'plate-covers'
+  | 'bucket-full'
+  | 'animating'
+  | 'finished'
+  | 'frozen-needs-thaw'
+  | 'locked-needs-key'
+  | 'chain-blocked';
 
-/** A fully realised level ready to play. */
 export interface LevelDefinition {
-  /** Stable id like `1.4` (chapter.index, 1-based) or `P.<seed>` for procedural. */
   id: string;
-  /** Display name. */
   name: string;
-  /** 1-based chapter index. */
   chapter: number;
-  /** 1-based index within chapter. */
   indexInChapter: number;
   holes: Hole[];
   plates: Plate[];
   screws: Screw[];
-  /** Number of bucket slots available (typically 5). */
   bucketSlots: number;
-  /** Time limit in seconds. */
   time: number;
-  /** "Par" time — completing under this earns the time star. */
   parTime: number;
+  /** Special screw types appearing in this level (for intro cards). */
+  introTypes: ScrewType[];
 }

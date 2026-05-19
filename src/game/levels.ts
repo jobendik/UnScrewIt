@@ -43,6 +43,7 @@ function cloneLevel(src: LevelDefinition): LevelDefinition {
       pinnedBy: [...(p.pinnedBy ?? [])],
     })),
     screws: src.screws.map((s) => ({ ...s })),
+    introTypes: [...src.introTypes],
   };
 }
 
