@@ -92,9 +92,9 @@ export function init(): Promise<void> {
 export function isReady(): boolean { return ready; }
 export function isShim(): boolean { return ready && !sdk; }
 
-export function gameplayStart(): void { sdk?.game?.gameplayStart?.(); }
-export function gameplayStop(): void { sdk?.game?.gameplayStop?.(); }
-export function happytime(): void { sdk?.game?.happytime?.(); }
+export function gameplayStart(): void { try { sdk?.game?.gameplayStart?.(); } catch { /* SDK throws outside CrazyGames */ } }
+export function gameplayStop(): void { try { sdk?.game?.gameplayStop?.(); } catch { /* SDK throws outside CrazyGames */ } }
+export function happytime(): void { try { sdk?.game?.happytime?.(); } catch { /* SDK throws outside CrazyGames */ } }
 
 /**
  * Request a rewarded ad. If the SDK isn't available (or the request

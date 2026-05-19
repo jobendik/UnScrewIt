@@ -1,16 +1,21 @@
 /**
  * Bucket bar renderer — draws the row of colour-bucket slots below the
  * wooden board area, inside the same SVG so it scales with the board.
+ *
+ * The bucket is the core mechanic; every visual decision here prioritises
+ * "can the player tell at a glance what's claimed, how full each slot is,
+ * and whether they're about to lock themselves out" — especially on mobile.
  */
 
 import { colorDef } from '@/game/colors';
+import { SLOT_CAPACITY } from '@/game/bucket';
 import type { BucketSlot } from '@/game/types';
 import { svg } from './svg';
 
-const BUCKET_TOP = 800;
-const BUCKET_HEIGHT = 78;
-const SLOT_GAP = 12;
-const SLOT_INSET_X = 40;
+const BUCKET_TOP = 790;
+const BUCKET_HEIGHT = 92;
+const SLOT_GAP = 10;
+const SLOT_INSET_X = 36;
 
 interface BucketLayout {
   slotWidth: number;
@@ -33,22 +38,47 @@ export function bucketLayout(slotCount: number, boardWidth = 600): BucketLayout 
   return { slotWidth, slotHeight, centers };
 }
 
+/**
+ * "Tight" = no empty slots remaining. The bucket can still accept any colour
+ * that already has an open slot, but the player has no fallback. We pulse the
+ * tray border in this state so they notice before they lock themselves out.
+ */
+function isTightState(slots: readonly BucketSlot[]): boolean {
+  return slots.every((s) => s.color !== null);
+}
+
 export function drawBucket(slots: readonly BucketSlot[]): SVGGElement {
   const layout = bucketLayout(slots.length);
+  const tight = isTightState(slots);
   const g = svg('g', { id: 'bucket-bar' });
 
-  // Backing tray.
+  // Backing tray — gains a warning ring when no empty slots remain.
   g.appendChild(
     svg('rect', {
-      x: 24,
-      y: BUCKET_TOP - 8,
-      width: 552,
-      height: layout.slotHeight + 22,
-      rx: 22,
+      x: 20,
+      y: BUCKET_TOP - 10,
+      width: 560,
+      height: layout.slotHeight + 26,
+      rx: 24,
       fill: '#3a1c08',
-      opacity: '.32',
+      opacity: '.36',
     }),
   );
+  if (tight) {
+    const warn = svg('rect', {
+      x: 20,
+      y: BUCKET_TOP - 10,
+      width: 560,
+      height: layout.slotHeight + 26,
+      rx: 24,
+      fill: 'none',
+      stroke: '#ffae3a',
+      'stroke-width': 3,
+      opacity: '.8',
+      className: 'bucket-tight-warn',
+    });
+    g.appendChild(warn);
+  }
 
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
@@ -59,6 +89,7 @@ export function drawBucket(slots: readonly BucketSlot[]): SVGGElement {
 
     const filled = slot.color !== null;
     const color = filled ? colorDef(slot.color as string) : null;
+    const nearFull = filled && slot.count >= SLOT_CAPACITY - 1;
 
     // Outer rim
     g.appendChild(
@@ -67,48 +98,102 @@ export function drawBucket(slots: readonly BucketSlot[]): SVGGElement {
         y,
         width: layout.slotWidth,
         height: layout.slotHeight,
-        rx: 14,
+        rx: 16,
         fill: '#1f0e02',
-        opacity: '.85',
+        opacity: filled ? '.92' : '.78',
       }),
     );
-    // Inner pocket
+    // Inner pocket — colour matches the slot's claimed colour.
     g.appendChild(
       svg('rect', {
         x: x + 4,
         y: y + 4,
         width: layout.slotWidth - 8,
         height: layout.slotHeight - 8,
-        rx: 10,
+        rx: 12,
         fill: color ? color.fill : '#5e3216',
-        opacity: filled ? '0.95' : '0.55',
+        opacity: filled ? '0.96' : '0.42',
       }),
     );
-    // Glossy highlight
+    // Glossy highlight strip across the top.
     g.appendChild(
       svg('rect', {
         x: x + 8,
-        y: y + 6,
+        y: y + 7,
         width: layout.slotWidth - 16,
-        height: 12,
-        rx: 6,
+        height: 14,
+        rx: 7,
         fill: color ? color.shine : '#fff',
-        opacity: filled ? '.55' : '.15',
+        opacity: filled ? '.65' : '.18',
       }),
     );
 
-    // Capacity dots (1..3) — filled dots indicate stacked screws
-    for (let d = 0; d < 3; d++) {
-      const px = x + 14 + d * ((layout.slotWidth - 28) / 2);
-      const py = y + layout.slotHeight - 14;
-      const isFilled = filled && d < slot.count;
+    // Vertical fill bar — bottom-up "thermometer" showing slot fullness at a glance.
+    const barLeft = x + 8;
+    const barRight = x + layout.slotWidth - 8;
+    const barBottom = y + layout.slotHeight - 8;
+    const barTop = y + 28;
+    const barFullHeight = barBottom - barTop;
+    const fillRatio = filled ? Math.min(1, slot.count / SLOT_CAPACITY) : 0;
+    // Track behind the fill so empty slots still read as "ready"
+    g.appendChild(
+      svg('rect', {
+        x: barLeft,
+        y: barTop,
+        width: barRight - barLeft,
+        height: barFullHeight,
+        rx: 8,
+        fill: '#000',
+        opacity: '.18',
+      }),
+    );
+    if (filled && color) {
+      const filledHeight = Math.max(6, barFullHeight * fillRatio);
       g.appendChild(
-        svg('circle', {
-          cx: px,
-          cy: py,
-          r: 5,
-          fill: isFilled ? '#fff' : '#000',
-          opacity: isFilled ? '.95' : '.25',
+        svg('rect', {
+          x: barLeft,
+          y: barBottom - filledHeight,
+          width: barRight - barLeft,
+          height: filledHeight,
+          rx: 8,
+          fill: color.shine,
+          opacity: '.88',
+          className: nearFull ? 'slot-fill-danger' : '',
+        }),
+      );
+    }
+
+    // Big numeric "N/3" counter — readable on small screens.
+    const countText = svg('text', {
+      x: center.x,
+      y: y + 24,
+      'text-anchor': 'middle',
+      'font-size': 17,
+      'font-weight': 900,
+      fill: '#fff',
+      'paint-order': 'stroke',
+      stroke: '#1f0e02',
+      'stroke-width': 3.5,
+      'stroke-linejoin': 'round',
+      opacity: filled ? '1' : '.55',
+    });
+    countText.textContent = filled ? `${slot.count}/${SLOT_CAPACITY}` : '—';
+    g.appendChild(countText);
+
+    // "Near full" yellow ring to draw the eye to slots about to clear.
+    if (nearFull) {
+      g.appendChild(
+        svg('rect', {
+          x: x + 1,
+          y: y + 1,
+          width: layout.slotWidth - 2,
+          height: layout.slotHeight - 2,
+          rx: 15,
+          fill: 'none',
+          stroke: '#fff5b0',
+          'stroke-width': 3,
+          opacity: '.85',
+          className: 'slot-near-full-pulse',
         }),
       );
     }

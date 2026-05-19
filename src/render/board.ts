@@ -15,6 +15,7 @@ import {
 } from '@/core/config';
 import { colorDef } from '@/game/colors';
 import { radToDeg } from '@/core/utils';
+import { pointOverPlateHole } from '@/game/plates';
 import { themeForChapter } from '@/themes';
 import type { GameState } from '@/game/state';
 import type { Plate, Screw } from '@/game/types';
@@ -40,8 +41,7 @@ export function renderBoard(root: SVGSVGElement, state: GameState, callbacks: Re
     buildDefs(),
     backgroundLayer(state),
     chainsLayer(state),
-    platesLayer(state),
-    screwsLayer(state, callbacks),
+    platesAndScrewsLayer(state, callbacks),
     drawBucket(state.bucketSlots),
     effectsLayer(),
   ]);
@@ -136,10 +136,70 @@ function backgroundLayer(state: GameState): SVGGElement {
   return g;
 }
 
-function platesLayer(state: GameState): SVGGElement {
+/**
+ * Render plates and screws interleaved by Z-order so plates drawn above
+ * visually cover the screws of plates below. The host plate of a screw is
+ * the LAST plate (highest Z) whose designated holes include the screw's
+ * position; the screw is drawn immediately after that plate, so any plate
+ * later in the array renders on top of it. This is what makes the engine's
+ * "Plate above is blocking it" message match what the player actually sees.
+ */
+function platesAndScrewsLayer(state: GameState, callbacks: RenderCallbacks): SVGGElement {
   const g = svg('g', { id: 'plates' });
-  for (const p of state.livePlates()) {
+  const plates = state.livePlates();
+
+  // Map each screw to the index of its latest host plate (which becomes its
+  // visual "anchor"). A screw whose host has already fallen/removed reverts
+  // to being drawn on top of everything.
+  const latestHost = new Map<string, number>();
+  for (const s of state.level.screws) {
+    const h = state.holeById(s.holeId);
+    if (!h) continue;
+    for (let i = 0; i < plates.length; i++) {
+      const p = plates[i];
+      if (!p || p.status !== 'active') continue;
+      if (pointOverPlateHole(p, h)) latestHost.set(s.id, i);
+    }
+  }
+
+  const drawScrewAt = (s: Screw): SVGGElement | null => {
+    const h = state.holeById(s.holeId);
+    if (!h) return null;
+    const blocker = state.removeBlocker(s);
+    // 'animating' and 'finished' are transient harness states — we still draw
+    // the screw at full opacity so the player can see what they were about to
+    // tap. Every other blocker (plate-covers, bucket-full, locked-needs-key,
+    // frozen-needs-thaw) is a real "can't tap right now" signal and should be
+    // dimmed. Previously bucket-full was treated as visually available, which
+    // mismatched the actual tap rejection.
+    const flags: ScrewVisualFlags = {
+      available: blocker === null || blocker === 'animating' || blocker === 'finished',
+      hint: state.highlightedScrews.has(s.id),
+    };
+    const group = drawScrew(s, h.x, h.y, flags);
+    group.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      callbacks.onScrewTap(s.id);
+    });
+    return group;
+  };
+
+  for (let i = 0; i < plates.length; i++) {
+    const p = plates[i];
+    if (!p) continue;
     g.appendChild(drawPlate(p));
+    for (const s of state.level.screws) {
+      if (latestHost.get(s.id) !== i) continue;
+      const node = drawScrewAt(s);
+      if (node) g.appendChild(node);
+    }
+  }
+  // Orphan screws (no active host plate hosts them) draw last, on top of
+  // everything — they are by definition unblocked and tappable.
+  for (const s of state.level.screws) {
+    if (latestHost.has(s.id)) continue;
+    const node = drawScrewAt(s);
+    if (node) g.appendChild(node);
   }
   return g;
 }
@@ -222,26 +282,6 @@ function chainsLayer(state: GameState): SVGGElement {
         stroke: '#7a4308', 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-dasharray': '8 6', opacity: '.85',
       }));
     }
-  }
-  return g;
-}
-
-function screwsLayer(state: GameState, callbacks: RenderCallbacks): SVGGElement {
-  const g = svg('g', { id: 'screws' });
-  for (const s of state.level.screws) {
-    const h = state.holeById(s.holeId);
-    if (!h) continue;
-    const blocker = state.removeBlocker(s);
-    const flags: ScrewVisualFlags = {
-      available: blocker === null || blocker === 'bucket-full',
-      hint: state.highlightedScrews.has(s.id),
-    };
-    const group = drawScrew(s, h.x, h.y, flags);
-    group.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      callbacks.onScrewTap(s.id);
-    });
-    g.appendChild(group);
   }
   return g;
 }

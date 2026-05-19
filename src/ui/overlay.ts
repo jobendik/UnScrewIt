@@ -99,6 +99,21 @@ export function showOverlay(html: string): void {
   const { overlay, card } = ensureBindings();
   card.innerHTML = html;
   overlay.classList.add('show');
+  // Animate any coin counters declared in the freshly-rendered card.
+  const rolls = card.querySelectorAll<HTMLElement>('.coin-roll[data-target]');
+  rolls.forEach((el) => {
+    const target = Number(el.dataset.target ?? '0');
+    if (!Number.isFinite(target) || target <= 0) { el.textContent = `+${target}`; return; }
+    const duration = Math.min(1100, 320 + target * 4);
+    const start = performance.now();
+    const step = (now: number): void => {
+      const t = Math.min(1, (now - start) / duration);
+      const ease = 1 - Math.pow(1 - t, 3);
+      el.textContent = `+${Math.round(target * ease)}`;
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
 }
 
 export function hideOverlay(): void {
@@ -119,16 +134,40 @@ export function setOverlayHandler(fn: (a: OverlayAction) => void): void {
 // ── Prebuilt overlay bodies ─────────────────────────────────────────────────
 
 export function winOverlayHtml(result: LevelResult): string {
-  const stars = `${'★'.repeat(result.stars)}${'☆'.repeat(3 - result.stars)}`;
+  const stars = Array.from({ length: 3 }, (_, i) => {
+    const filled = i < result.stars;
+    return `<span class="star ${filled ? 'star--filled' : ''}" style="animation-delay:${120 + i * 140}ms">${filled ? '★' : '☆'}</span>`;
+  }).join('');
+
   const next = result.isFinal
     ? `<button class="primary-btn" data-action="open-chapters">Levels</button>`
     : `<button class="primary-btn primary-btn--big" data-action="next">Next Level →</button>`;
+
+  const badges: string[] = [];
+  if (result.perfectSolve) {
+    badges.push(`<div class="win-badge win-badge--perfect"><span class="win-badge__icon">🎯</span><span class="win-badge__label">Perfect Solve</span><span class="win-badge__bonus">+25 🪙</span></div>`);
+  }
+  if (result.noWastedMoves) {
+    badges.push(`<div class="win-badge win-badge--clean"><span class="win-badge__icon">✨</span><span class="win-badge__label">No Wasted Moves</span><span class="win-badge__bonus">+15 🪙</span></div>`);
+  }
+  if (result.perfectSolve && result.noWastedMoves) {
+    badges.push(`<div class="win-badge win-badge--mastery"><span class="win-badge__icon">🏆</span><span class="win-badge__label">Mastery Bonus</span><span class="win-badge__bonus">+10 🪙</span></div>`);
+  }
+  const badgeBlock = badges.length
+    ? `<div class="win-badges">${badges.join('')}</div>`
+    : '';
+
+  const movesCls = result.perfectSolve ? 'kv-good' : '';
+  const timeCls  = result.beatTimePar ? 'kv-good' : '';
+
   return `
     <h1>Level Clear!</h1>
-    <div class="stars stars--animated">${stars}</div>
-    <p class="big-coins">+${result.coinsEarned} <span class="coin-icon">🪙</span></p>
-    <div class="kv-row">
-      <div><span class="kv-label">Time</span><b>${fmtTime(result.timeLeft)}</b></div>
+    <div class="stars stars--sequenced">${stars}</div>
+    ${badgeBlock}
+    <p class="big-coins"><span class="coin-roll" data-target="${result.coinsEarned}">0</span> <span class="coin-icon">🪙</span></p>
+    <div class="kv-row kv-row--three">
+      <div class="${movesCls}"><span class="kv-label">Moves</span><b>${result.movesUsed}<span class="kv-sub"> / ${result.parMoves}</span></b></div>
+      <div class="${timeCls}"><span class="kv-label">Time</span><b>${fmtTime(result.secondsTaken)}<span class="kv-sub"> / ${fmtTime(result.parTime)}</span></b></div>
       <div><span class="kv-label">Best combo</span><b>×${result.maxCombo}</b></div>
     </div>
     <div class="card-actions">
@@ -461,6 +500,13 @@ export function tutorialStepHtml(step: number): string {
       body: 'Stack 3 of the same colour to clear a slot — that frees up space for more screws.',
       cta: 'Cool!',
       nextStep: 2,
+    },
+    {
+      icon: '🎯',
+      title: 'Solve in par moves',
+      body: 'Each level has a <b>Perfect Solve</b> target (top bar). Beat it for bonus stars & coins — going over just means no bonus, never a fail.',
+      cta: 'Nice!',
+      nextStep: 3,
     },
     {
       icon: '⏱',

@@ -24,6 +24,8 @@ interface HudRefs {
   xpBar: HTMLElement;
   streakBadge: HTMLElement;
   progress: HTMLElement;
+  moves: HTMLElement;
+  movesBadge: HTMLElement;
   boosterCounts: Record<BoosterId, HTMLElement>;
   boosterButtons: Record<BoosterId, HTMLButtonElement>;
   questDot: HTMLElement;
@@ -44,6 +46,8 @@ function refs(): HudRefs {
     xpBar:       requireEl('xpBarFill'),
     streakBadge: requireEl('streakBadge'),
     progress:    requireEl('progressText'),
+    moves:       requireEl('movesText'),
+    movesBadge:  requireEl('movesBadge'),
     boosterCounts: {
       extraTime:  requireEl('boosterExtraTimeCount'),
       colorSort:  requireEl('boosterColorSortCount'),
@@ -72,6 +76,13 @@ export function updateHud(state: GameState): void {
   r.rank.textContent = `R${xp.rank}`;
   r.xpBar.style.width = `${Math.round(xp.fraction * 100)}%`;
   r.streakBadge.textContent = save.daily.streakDay > 0 ? `🔥 ${save.daily.streakDay}` : '🔥 0';
+
+  // Moves vs par — green while within par, red once exceeded.
+  const par = state.level?.parMoves ?? 0;
+  const used = state.movesUsed ?? 0;
+  r.moves.textContent = `${used}/${par}`;
+  r.movesBadge.classList.toggle('moves-badge--over', par > 0 && used > par);
+  r.movesBadge.classList.toggle('moves-badge--tight', par > 0 && used >= par - 2 && used <= par);
 
   // Booster counts.
   const ids: BoosterId[] = ['extraTime', 'colorSort', 'revealHint', 'undo'];

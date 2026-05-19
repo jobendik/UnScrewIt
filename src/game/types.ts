@@ -93,6 +93,13 @@ export interface LevelDefinition {
   bucketSlots: number;
   time: number;
   parTime: number;
+  /**
+   * Mastery layer — solving in this many moves or fewer earns the Perfect Solve
+   * badge. Players who exceed it still complete the level; they just lose the
+   * efficiency bonus. Computed by the generator from the ideal-move count plus
+   * a chapter-based buffer.
+   */
+  parMoves: number;
   /** Special screw types appearing in this level (for intro cards). */
   introTypes: ScrewType[];
 }

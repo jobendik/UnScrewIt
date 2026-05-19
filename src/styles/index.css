@@ -158,6 +158,25 @@ body::after {
   font-size: 12px; font-weight: 800;
   box-shadow: 0 2px 0 rgba(120, 60, 10, .25);
 }
+.moves-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255, 255, 255, .85);
+  border: 2px solid rgba(180, 80, 12, .35);
+  color: #7a3a08; border-radius: 999px;
+  padding: 2px 8px; font-size: 12px; font-weight: 800;
+  box-shadow: 0 2px 0 rgba(120, 60, 10, .25);
+  transition: background .25s ease, color .25s ease, transform .15s ease;
+}
+.moves-badge__icon { font-size: 12px; line-height: 1; }
+.moves-badge--tight {
+  background: linear-gradient(#fff5b0, #ffce5a);
+  border-color: #c47a14; color: #5b2900;
+}
+.moves-badge--over {
+  background: linear-gradient(#ffb3a5, #ef6a5a);
+  border-color: #a82310; color: #fff;
+  text-shadow: 0 1px 0 rgba(0,0,0,.25);
+}
 
 /* ====== Board stage ====== */
 
@@ -303,11 +322,54 @@ body::after {
   filter: drop-shadow(0 3px 0 rgba(100, 50, 12, .25));
 }
 .stars--animated { animation: starPop .6s cubic-bezier(.18, 1.6, .22, 1); }
+.stars--sequenced { display: inline-flex; gap: 6px; }
+.stars--sequenced .star {
+  display: inline-block;
+  opacity: 0; transform: scale(.3);
+  animation: starPop .55s cubic-bezier(.18, 1.7, .22, 1) forwards;
+}
+.stars--sequenced .star--filled { color: #ffce42; text-shadow: 0 3px 0 rgba(100, 50, 12, .35); }
 @keyframes starPop {
   0%   { transform: scale(.3); opacity: 0; }
-  60%  { transform: scale(1.18); opacity: 1; }
-  100% { transform: scale(1); }
+  60%  { transform: scale(1.22); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
+
+.win-badges {
+  display: grid; gap: 6px; margin: 8px 4px 4px;
+}
+.win-badge {
+  display: grid; grid-template-columns: auto 1fr auto;
+  align-items: center; gap: 10px;
+  padding: 8px 12px; border-radius: 14px;
+  background: linear-gradient(90deg, #fff5b0, #ffd888);
+  border: 2px solid #c4810e; color: #5e2c08;
+  font-weight: 800; font-size: 14px; text-align: left;
+  box-shadow: 0 3px 0 rgba(120, 60, 10, .25);
+  opacity: 0; transform: translateY(8px);
+  animation: badgeReveal .55s cubic-bezier(.18, 1.6, .22, 1) forwards;
+}
+.win-badge:nth-child(1) { animation-delay: .55s; }
+.win-badge:nth-child(2) { animation-delay: .75s; }
+.win-badge:nth-child(3) { animation-delay: .95s; }
+.win-badge--clean { background: linear-gradient(90deg, #c7eaff, #82c9ff); border-color: #1474b7; color: #0d3d68; }
+.win-badge--mastery { background: linear-gradient(90deg, #ffe3a0, #ff9a35); border-color: #b04a06; color: #fff; text-shadow: 0 1px 0 rgba(0,0,0,.25); }
+.win-badge__icon { font-size: 22px; line-height: 1; }
+.win-badge__bonus { font-size: 13px; opacity: .92; }
+@keyframes badgeReveal {
+  0%   { opacity: 0; transform: translateY(8px) scale(.92); }
+  60%  { opacity: 1; transform: translateY(0) scale(1.05); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.kv-row--three { grid-template-columns: 1fr 1fr 1fr; }
+.kv-row .kv-good {
+  background: linear-gradient(180deg, rgba(120, 200, 100, .25), rgba(60, 160, 80, .18));
+  box-shadow: inset 0 0 0 1px rgba(40, 130, 60, .35);
+}
+.kv-row .kv-good b { color: #1c5a23; }
+.kv-sub { font-size: 12px; opacity: .58; font-weight: 700; }
+.coin-roll { display: inline-block; min-width: 1.5em; font-variant-numeric: tabular-nums; }
 
 .card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .card-actions.single { grid-template-columns: 1fr; }
@@ -518,6 +580,22 @@ body::after {
 @keyframes hintPulse {
   from { filter: drop-shadow(0 0 0 rgba(255,255,255,0)); transform: scale(1); }
   to { filter: drop-shadow(0 0 16px rgba(255,255,255,.95)); transform: scale(1.06); }
+}
+
+.slot-near-full-pulse { animation: slotPulse 1s ease-in-out infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes slotPulse {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
+}
+.slot-fill-danger { animation: slotFillDanger 1.2s ease-in-out infinite; }
+@keyframes slotFillDanger {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.45); }
+}
+.bucket-tight-warn { animation: bucketTight 1.4s ease-in-out infinite; }
+@keyframes bucketTight {
+  0%, 100% { opacity: .55; }
+  50%      { opacity: 1; }
 }
 
 .shake { animation: boardShake .18s ease-in-out 2; }

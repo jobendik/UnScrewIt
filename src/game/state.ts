@@ -38,6 +38,7 @@ interface UndoSnapshot {
   bucket: BucketSlot[];
   timeLeft: number;
   screwsCleared: number;
+  movesUsed: number;
 }
 
 export interface LevelResult {
@@ -53,6 +54,22 @@ export interface LevelResult {
   isFinal: boolean;
   /** Screws cleared this run — fed to quests. */
   screwsCleared: number;
+  /** Successful taps used to solve the level (frozen crack + pop count as 2). */
+  movesUsed: number;
+  /** Move-efficiency target (mastery layer). */
+  parMoves: number;
+  /** Time-efficiency target (already used to award the time star). */
+  parTime: number;
+  /** Blocked taps — counted toward "No Wasted Moves". */
+  wastedMoves: number;
+  /** True if the player solved within parMoves. */
+  perfectSolve: boolean;
+  /** True if the player never tapped a blocked screw. */
+  noWastedMoves: boolean;
+  /** True if both time AND par-moves targets were beaten. */
+  beatTimePar: boolean;
+  /** Coin bonus awarded for efficiency (already included in coinsEarned). */
+  efficiencyBonusCoins: number;
 }
 
 export interface FailureInfo {
@@ -120,6 +137,10 @@ export class GameState {
   maxCombo = 0;
   coinsThisLevel = 0;
   screwsCleared = 0;
+  /** Successful taps recorded this run (frozen crack counts as a tap). */
+  movesUsed = 0;
+  /** Blocked taps recorded this run. Drives the "No Wasted Moves" badge. */
+  wastedMoves = 0;
 
   /** Screw IDs to highlight as hint targets (visual ring on screw). */
   highlightedScrews = new Set<string>();
@@ -162,6 +183,8 @@ export class GameState {
     this.maxCombo = 0;
     this.coinsThisLevel = 0;
     this.screwsCleared = 0;
+    this.movesUsed = 0;
+    this.wastedMoves = 0;
     this.initialScrewCount = def.screws.length;
     this.bonusTimeAwarded = 0;
     this.hadFailureThisRun = false;
@@ -174,9 +197,13 @@ export class GameState {
   }
 
   restart(): void {
+    // Carry the "this run had a failure" flag across the reset only when the
+    // player is actually restarting from a loss. Restarting after a WIN (the
+    // "Replay" button on the level-complete screen) should not penalise the
+    // no-fail quest streak.
+    const cameFromLoss = this.lost;
     this.loadLevel(this.chapter, this.levelIdx);
-    // Mark the failure AFTER loadLevel so it survives the state reset.
-    this.hadFailureThisRun = true;
+    if (cameFromLoss) this.hadFailureThisRun = true;
   }
 
   pauseTimer(): void { this.stopTimer(); }
@@ -226,7 +253,28 @@ export class GameState {
   livePlates(): Plate[] { return this.level.plates.filter((p) => p.status !== 'removed'); }
 
   private isHoleBlocked(hole: Hole): boolean {
-    for (const p of this.activePlates()) {
+    // Plates are rendered in array order — later plates draw ON TOP. A screw
+    // is blocked only when a plate above its host (i.e., later in the array
+    // and covering the hole position without itself designating it) sits in
+    // the way. This mirrors what the player sees, so the toast "Plate above
+    // is blocking it" never fires for a screw that visually looks accessible.
+    const plates = this.activePlates();
+    let hostIdx = -1;
+    for (let i = 0; i < plates.length; i++) {
+      const p = plates[i];
+      if (p && pointOverPlateHole(p, hole)) hostIdx = i;
+    }
+    if (hostIdx < 0) {
+      // Defensive — no plate hosts this hole at all (shouldn't happen since
+      // every screw sits at a designated hole). Fall back to the strict rule.
+      for (const p of plates) {
+        if (pointInPlate(p, hole) && !pointOverPlateHole(p, hole)) return true;
+      }
+      return false;
+    }
+    for (let i = hostIdx + 1; i < plates.length; i++) {
+      const p = plates[i];
+      if (!p) continue;
       if (pointInPlate(p, hole) && !pointOverPlateHole(p, hole)) return true;
     }
     return false;
@@ -271,6 +319,10 @@ export class GameState {
     if (!screw) return;
     const blocker = this.removeBlocker(screw);
     if (blocker) {
+      // 'animating' and 'finished' are transient harness states, not user errors.
+      if (blocker !== 'animating' && blocker !== 'finished') {
+        this.wastedMoves += 1;
+      }
       this.callbacks.onRemoveBlocked?.(screwId, blocker);
       this.breakCombo();
       return;
@@ -279,6 +331,7 @@ export class GameState {
     if (screw.type === 'frozen' && (screw.frozenHits ?? 0) > 0) {
       this.saveUndo();
       screw.frozenHits = (screw.frozenHits ?? 0) - 1;
+      this.movesUsed += 1;
       const hole = this.holeById(screw.holeId);
       if (hole) this.callbacks.onFrozenCracked?.(screw.id, hole);
       this.emitChange();
@@ -300,6 +353,7 @@ export class GameState {
     const outcome = place(projectedBucket, screw.color);
 
     this.saveUndo();
+    this.movesUsed += 1;
     this.animating = true;
     this.emitChange();
 
@@ -387,6 +441,8 @@ export class GameState {
     }
 
     this.saveUndo();
+    // A chain pop is one tap action regardless of how many screws fly.
+    this.movesUsed += 1;
     this.animating = true;
     this.emitChange();
 
@@ -493,7 +549,12 @@ export class GameState {
   private checkWin(): void {
     if (this.completed || this.lost) return;
     const stillFalling = this.level.plates.some((p) => p.status === 'falling');
-    if (this.activePlates().length === 0 && !stillFalling) {
+    // A level is only cleared when every plate has fallen AND every screw has
+    // been popped. The screws check is a defensive belt-and-braces — generator
+    // invariants should make screw count reach zero exactly when the last
+    // plate falls, but if anything ever placed an "orphan" screw not pinning
+    // any plate, the player would otherwise never finish the level.
+    if (this.activePlates().length === 0 && !stillFalling && this.level.screws.length === 0) {
       this.completed = true;
       this.stopTimer();
       this.cancelComboTimer();
@@ -502,11 +563,25 @@ export class GameState {
         0,
         this.level.time,
       );
-      const timeStar = secondsTaken <= this.level.parTime ? 1 : 0;
-      const fastBonus = secondsTaken <= this.level.parTime * 0.75 ? 1 : 0;
-      const stars = clamp(1 + timeStar + fastBonus, 1, 3);
-      const finalBonus = Math.max(0, this.timeLeft) * 2 + (stars - 1) * 25;
+
+      // ── Stars ────────────────────────────────────────────────────────
+      // 1 star — clear; +1 if within parTime; +1 if within parMoves.
+      const beatTime = secondsTaken <= this.level.parTime;
+      const beatMoves = this.movesUsed <= this.level.parMoves;
+      const perfectSolve = beatMoves;
+      const noWastedMoves = this.wastedMoves === 0;
+      const stars = clamp(1 + (beatTime ? 1 : 0) + (beatMoves ? 1 : 0), 1, 3);
+
+      // ── Efficiency / clear bonuses ───────────────────────────────────
+      const timeLeftBonus = Math.max(0, this.timeLeft) * 2;
+      let efficiencyBonus = 0;
+      if (perfectSolve)    efficiencyBonus += 25;
+      if (noWastedMoves)   efficiencyBonus += 15;
+      if (perfectSolve && noWastedMoves) efficiencyBonus += 10;
+      const starBonus = (stars - 1) * 25;
+      const finalBonus = timeLeftBonus + starBonus + efficiencyBonus;
       this.awardCoins(finalBonus);
+
       const result: LevelResult = {
         chapter: this.chapter,
         level: this.levelIdx,
@@ -518,6 +593,14 @@ export class GameState {
         maxCombo: this.maxCombo,
         secondsTaken,
         screwsCleared: this.screwsCleared,
+        movesUsed: this.movesUsed,
+        parMoves: this.level.parMoves,
+        parTime: this.level.parTime,
+        wastedMoves: this.wastedMoves,
+        perfectSolve,
+        noWastedMoves,
+        beatTimePar: beatTime,
+        efficiencyBonusCoins: efficiencyBonus,
         isFinal: !advanceLevel(this.chapter, this.levelIdx),
       };
       this.callbacks.onWin?.(result);
@@ -629,6 +712,7 @@ export class GameState {
       bucket: bucketSnapshot(this.bucket),
       timeLeft: this.timeLeft,
       screwsCleared: this.screwsCleared,
+      movesUsed: this.movesUsed,
     });
     if (this.undoStack.length > 12) this.undoStack.shift();
   }
@@ -648,6 +732,7 @@ export class GameState {
     bucketRestore(this.bucket, snap.bucket);
     this.timeLeft = snap.timeLeft;
     this.screwsCleared = snap.screwsCleared;
+    this.movesUsed = snap.movesUsed;
     this.updatePins();
     this.breakCombo();
     this.emitChange();

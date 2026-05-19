@@ -50,9 +50,32 @@ function hashState(state: SearchState): string {
 }
 
 function holeBlocked(state: SearchState, hole: Hole): boolean {
+  // Z-order rule: a hole is blocked only when a plate ABOVE its host (later
+  // in insertion order, since Map iteration is insertion-ordered and matches
+  // the renderer's drawing order) covers the position without designating
+  // it. Must agree with GameState.isHoleBlocked or the solver would
+  // false-reject layouts where the host plate happens to be drawn last.
+  const ordered: Array<{ plate: Plate; active: boolean }> = [];
   for (const { plate, status } of state.plates.values()) {
-    if (status !== 'active') continue;
-    if (pointInPlate(plate, hole) && !pointOverPlateHole(plate, hole)) return true;
+    ordered.push({ plate, active: status === 'active' });
+  }
+  let hostIdx = -1;
+  for (let i = 0; i < ordered.length; i++) {
+    const entry = ordered[i];
+    if (!entry || !entry.active) continue;
+    if (pointOverPlateHole(entry.plate, hole)) hostIdx = i;
+  }
+  if (hostIdx < 0) {
+    for (const { plate, active } of ordered) {
+      if (!active) continue;
+      if (pointInPlate(plate, hole) && !pointOverPlateHole(plate, hole)) return true;
+    }
+    return false;
+  }
+  for (let i = hostIdx + 1; i < ordered.length; i++) {
+    const entry = ordered[i];
+    if (!entry || !entry.active) continue;
+    if (pointInPlate(entry.plate, hole) && !pointOverPlateHole(entry.plate, hole)) return true;
   }
   return false;
 }

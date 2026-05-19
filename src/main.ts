@@ -56,7 +56,8 @@ import { colorDef } from './game/colors';
 import type { OverlayAction } from './ui/overlay';
 
 const NEAR_MISS_SECONDS = 30;
-const POST_WIN_AUTOADVANCE_MS = 1900;
+/** Delay between gameplay-stop and the win overlay appearing, so the confetti + audio land first. */
+const WIN_OVERLAY_DELAY_MS = 600;
 
 function buildShell(): void {
   const root = requireEl('root');
@@ -81,6 +82,9 @@ function buildShell(): void {
         <section class="hud-rank">
           <span class="rank-badge" id="rankText">R1</span>
           <span class="rank-bar"><span class="rank-bar-fill" id="xpBarFill"></span></span>
+          <span id="movesBadge" class="moves-badge" title="Moves used / par (Perfect Solve target)">
+            <span class="moves-badge__icon">🎯</span><span id="movesText">0/0</span>
+          </span>
           <span class="streak-badge" id="streakBadge">🔥 0</span>
         </section>
 
@@ -187,6 +191,13 @@ function bootstrap(): void {
 
   let winInFlight = false;
   let loseInFlight: FailureInfo | null = null;
+  /**
+   * Most-recent win result. Cached so that if the player opens a side menu
+   * (Quests / Daily / Settings) from the win screen and then closes it, we
+   * can restore the win overlay instead of stranding them on a finished
+   * level with no overlay.
+   */
+  let lastWinResult: LevelResult | null = null;
   let lastChapter = -1;
 
   const game = new GameState({
@@ -203,10 +214,26 @@ function bootstrap(): void {
     },
     onRemoveBlocked: (_id, reason) => {
       if (reason === 'animating' || reason === 'finished') return;
-      if (reason === 'bucket-full') { audio.bucketFull(); showToast('Clear a slot first'); }
-      else if (reason === 'locked-needs-key') { audio.blocked(); showToast('Find a 🔑 key first'); }
-      else if (reason === 'chain-blocked') { audio.blocked(); showToast('Chained — need all reachable'); }
-      else { audio.blocked(); showToast('Plate above blocks it'); }
+      if (reason === 'bucket-full') {
+        audio.bucketFull();
+        // Differentiate "no matching colour slot" from "tray fully claimed".
+        const allClaimed = game.bucketSlots.every((s) => s.color !== null);
+        showToast(allClaimed
+          ? '🪣 Bucket full — clear a slot first!'
+          : '🎨 No matching slot for that colour');
+      } else if (reason === 'locked-needs-key') {
+        audio.blocked();
+        showToast('🔑 Find the matching key first');
+      } else if (reason === 'chain-blocked') {
+        audio.blocked();
+        showToast('⛓️ Chain needs all members reachable');
+      } else if (reason === 'frozen-needs-thaw') {
+        audio.blocked();
+        showToast('❄️ Crack the ice first');
+      } else {
+        audio.blocked();
+        showToast('🔒 Plate above is blocking it');
+      }
       shake(stage);
     },
     onScrewToBucket: (contexts, resolve) => {
@@ -309,7 +336,15 @@ function bootstrap(): void {
   setOverlayHandler(handleOverlayAction);
 
   // Toolbar wiring.
-  restartBtn.addEventListener('click', () => { audio.click(); game.restart(); });
+  restartBtn.addEventListener('click', () => {
+    audio.click();
+    // If a win/lose/menu overlay is open, dismiss it first so the player isn't
+    // left staring at the old result while the new run is already underway.
+    if (isOverlayOpen()) hideOverlay();
+    loseInFlight = null;
+    game.restart();
+    gameplayStart();
+  });
   questsBtn.addEventListener('click', () => { audio.click(); game.pauseTimer(); showOverlay(questsOverlayHtml()); });
   dailyBtn.addEventListener('click', openDailyChest);
   chaptersBtn.addEventListener('click', () => { audio.click(); game.pauseTimer(); showOverlay(chapterOverlayHtml()); });
@@ -408,11 +443,14 @@ function bootstrap(): void {
     switch (action.type) {
       case 'restart':
         hideOverlay();
+        loseInFlight = null;
+        lastWinResult = null;
         game.restart();
         gameplayStart();
         break;
       case 'next': {
         hideOverlay();
+        lastWinResult = null;
         const adv = nextLevel(game.chapter, game.levelIdx);
         if (adv) {
           game.loadLevel(adv.chapter, adv.level);
@@ -423,7 +461,14 @@ function bootstrap(): void {
       }
       case 'close':
         hideOverlay();
-        if (!game.completed && !game.lost) {
+        // If the player closed a side menu while a level is already finished,
+        // re-surface the win / lose overlay so they aren't stranded with no
+        // way to progress (Replay / Next / Levels are only reachable there).
+        if (game.completed && lastWinResult) {
+          showOverlay(winOverlayHtml(lastWinResult));
+        } else if (game.lost && loseInFlight) {
+          showOverlay(loseOverlayHtml(loseInFlight.reason, loseInFlight.progress));
+        } else if (!game.completed && !game.lost) {
           game.resumeTimer();
           gameplayStart();
         }
@@ -436,6 +481,8 @@ function bootstrap(): void {
       case 'open-shop':         showOverlay(shopOverlayHtml());        break;
       case 'chapter-select':
         hideOverlay();
+        loseInFlight = null;
+        lastWinResult = null;
         game.loadLevel(action.chapter, action.level);
         gameplayStart();
         break;
@@ -586,6 +633,7 @@ function bootstrap(): void {
     if (winInFlight) return;
     winInFlight = true;
     loseInFlight = null;
+    lastWinResult = result;
 
     audio.win();
     pulseWin();
@@ -595,7 +643,10 @@ function bootstrap(): void {
     persistWin(result);
     awardCoins(result.coinsEarned);
     updateSave((s) => { s.stats.coinsEarnedLifetime += result.coinsEarned; });
-    const rankGain = awardXp(20 + result.stars * 15);
+    const efficiencyXp =
+      (result.perfectSolve ? 15 : 0) +
+      (result.noWastedMoves ? 10 : 0);
+    const rankGain = awardXp(20 + result.stars * 15 + efficiencyXp);
     if (rankGain > 0) {
       const xp = xpProgress();
       enqueueAchievementToast({
@@ -611,23 +662,13 @@ function bootstrap(): void {
 
     updateHud(game);
 
+    // Brief delay so confetti / win sound land before the modal interrupts them.
+    // The overlay stays open until the player presses Next / Replay; do not
+    // auto-advance, or the player never gets to read their reward.
     window.setTimeout(() => {
       showOverlay(winOverlayHtml(result));
       winInFlight = false;
-    }, 600);
-
-    window.setTimeout(() => {
-      if (!isOverlayOpen()) return;
-      if (!winInFlight) {
-        const adv = nextLevel(result.chapter, result.level);
-        if (adv && !result.isFinal) {
-          hideOverlay();
-          game.loadLevel(adv.chapter, adv.level);
-          gameplayStart();
-          happytime();
-        }
-      }
-    }, POST_WIN_AUTOADVANCE_MS + 600);
+    }, WIN_OVERLAY_DELAY_MS);
   }
 
   function onLevelLose(info: FailureInfo): void {
@@ -695,10 +736,9 @@ function bootstrap(): void {
   }
 
   function openDailyChest(): void {
-    if (!dailyStatus().claimable) {
-      showOverlay(dailyChestHtml(dailyStatus()));
-      return;
-    }
+    // Either branch shows the chest overlay — pause and click in one place so
+    // the timer doesn't keep ticking just because today's reward was already
+    // claimed.
     game.pauseTimer();
     audio.click();
     showOverlay(dailyChestHtml(dailyStatus()));
