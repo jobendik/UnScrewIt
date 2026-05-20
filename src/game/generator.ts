@@ -59,7 +59,13 @@ function profileFor(chapter: number, level: number): DifficultyProfile {
   const plateCount = Math.min(3 + Math.floor(ramp / 4) + cap, 8);
   const colorCount = Math.min(3 + Math.floor(ramp / 6) + cap, 6);
   const trios = Math.min(2 + Math.floor(ramp / 4) + Math.floor(cap / 2), 6);
-  const bucketSlots = 5;
+  // Always keep one fewer slot than the number of distinct colours in play so
+  // the bucket creates a genuine planning constraint from the start: the player
+  // can never hold every colour simultaneously and must complete at least one
+  // trio before opening a new colour slot.  A floor of 2 keeps the very
+  // earliest levels (2 unique colours) playable without an impossible squeeze.
+  const usedColors = Math.min(trios, colorCount);
+  const bucketSlots = Math.max(2, usedColors - 1);
   const totalScrews = trios * 3;
   const baseSeconds = 60 + totalScrews * 8 + plateCount * 4;
   const time = baseSeconds + 25;
@@ -507,14 +513,16 @@ function stackingFloor(chapter: number, totalScrews: number): number {
   // What fraction of screws must be BLOCKED at level start. Without this, a
   // level degenerates into "tap them in any order" because most screws sit at
   // their host plate's hole with nothing above them. We aim for a clear
-  // ordering puzzle: chapter 1 is gentle (1–2 stacked is enough to teach the
-  // mechanic), but mid/late chapters require the majority of screws to be
-  // initially gated behind another plate.
-  if (chapter <= 1) return Math.max(1, Math.floor(totalScrews * 0.2));
-  if (chapter <= 2) return Math.max(2, Math.floor(totalScrews * 0.3));
-  if (chapter <= 4) return Math.max(3, Math.floor(totalScrews * 0.4));
-  if (chapter <= 7) return Math.max(4, Math.floor(totalScrews * 0.45));
-  return Math.max(5, Math.floor(totalScrews * 0.5));
+  // ordering puzzle: the majority of screws should be gated behind cover
+  // plates so the player must plan which plate to remove first.
+  // These fractions are intentionally high — the generator will retry up to
+  // 80 times (falling back to a smaller scaffold) to meet the floor, so
+  // accepting a weaker result should never be necessary.
+  if (chapter <= 1) return Math.max(2, Math.floor(totalScrews * 0.4));
+  if (chapter <= 2) return Math.max(3, Math.floor(totalScrews * 0.45));
+  if (chapter <= 4) return Math.max(4, Math.floor(totalScrews * 0.5));
+  if (chapter <= 7) return Math.max(5, Math.floor(totalScrews * 0.55));
+  return Math.max(6, Math.floor(totalScrews * 0.6));
 }
 
 function countStackedPins(
@@ -773,8 +781,19 @@ export function generateLevel(params: GenParams): LevelDefinition {
     // Last-resort fallback. Still aims for the chapter's stacking floor but
     // with a smaller pin budget, which is easier to satisfy. We keep the
     // requested chapter (not chapter 1) so the level still feels like a
-    // proper puzzle — just smaller.
-    const fallback: DifficultyProfile = { ...profile, plateCount: 3, trios: 2, frozenCount: 0, chainedPairs: 0, lockedPairs: 0 };
+    // proper puzzle — just smaller.  Recalculate bucketSlots for the reduced
+    // trios count so the bucket constraint stays consistent (2 trios = 2 used
+    // colours = 1 slot fewer → min 2 slots).
+    const fallbackUsedColors = Math.min(2, profile.colorCount);
+    const fallback: DifficultyProfile = {
+      ...profile,
+      plateCount: 3,
+      trios: 2,
+      bucketSlots: Math.max(2, fallbackUsedColors - 1),
+      frozenCount: 0,
+      chainedPairs: 0,
+      lockedPairs: 0,
+    };
     for (let attempt = 0; attempt < 24 && !scaffold; attempt++) {
       scaffold = buildScaffold(rng, fallback, params.chapter);
     }
@@ -783,7 +802,9 @@ export function generateLevel(params: GenParams): LevelDefinition {
 
   let introTypes: ScrewType[] = [];
   let chosen: BuildResult | null = null;
-  for (let attempt = 0; attempt < 24; attempt++) {
+  // With fewer bucket slots (always one less than unique colours) more random
+  // colour assignments fail the solvability check — bump retries to compensate.
+  for (let attempt = 0; attempt < 40; attempt++) {
     assignColors(rng, scaffold.screws, profile);
     if (solvable(scaffold, profile.bucketSlots)) {
       // Once colour assignment passes, sprinkle special screws on top.
